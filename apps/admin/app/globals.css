@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Design tokens. These mirror `tailwind.config.js` so plain CSS (scrollbars,
+   selection, focus rings) can reach the same palette the components use.
+   --------------------------------------------------------------------------- */
+:root {
+  --ink: #0b0b0f;
+  --well: #101015;
+  --surface: #141419;
+  --panel: #17171d;
+  --card: #1d1d25;
+  --raised: #26262f;
+
+  --line: #26262f;
+  --line-strong: #34343f;
+
+  --fg: #e8e8ef;
+  --brand: #f59e0b;
+
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
+
+body {
+  background-color: var(--ink);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---------------------------------------------------------------------------
+   Focus. Components use `focus:outline-none` on inputs for the custom border
+   treatment; this keeps keyboard users from losing their place entirely.
+   --------------------------------------------------------------------------- */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Pointer users don't need the ring on top of the hover/active styling. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Scrollbars
+   --------------------------------------------------------------------------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--raised);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line-strong);
+  background-clip: content-box;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--raised) transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   Motion. Respect the user's OS-level reduced-motion preference.
+   --------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

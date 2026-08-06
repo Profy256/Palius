@@ -1,0 +1,77 @@
+# ---------------------------------------------------------------------------
+# Render blueprint — Palius / CHAK backend
+#
+# Deploys the Go + Gin API. The database is Neon (external Postgres), not a
+# Render Postgres instance, so the only thing Render needs is DATABASE_URL.
+#
+# Deploy:
+#   1. Push this repo to GitHub.
+#   2. Render Dashboard -> New -> Blueprint -> pick the repo.
+#   3. Fill the env vars marked `sync: false` (they are secrets, so they are
+#      deliberately not stored in git).
+#
+# The frontend and admin apps deploy to Vercel, not here — see vercel.json in
+# apps/frontend and apps/admin.
+# ---------------------------------------------------------------------------
+
+services:
+  - type: web
+    name: palius-backend
+    runtime: docker
+    plan: starter # 512MB / 0.5 CPU. Upgrade before enabling Playwright workers.
+    region: oregon
+    rootDir: apps/backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: APP_ENV
+        value: production
+
+      # ---- Neon Postgres -------------------------------------------------
+      # Paste the Neon connection string (the POOLED one, ending in
+      # -pooler.<region>.aws.neon.tech). Pooled avoids exhausting the branch's
+      # connection limit when Render scales instances.
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_MAX_CONNS
+        value: 10
+      - key: DB_MAX_IDLE
+        value: 5
+
+      # ---- CORS ----------------------------------------------------------
+      # Comma-separated list of the deployed Vercel origins. Leaving this unset
+      # allows any origin, which is fine for a demo and wrong for production.
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+      # ---- AI providers --------------------------------------------------
+      # AI_PROVIDER=auto picks the first key that is present. Every endpoint
+      # falls back to deterministic sample data when no key is set, so the app
+      # still works on a fresh deploy with nothing configured.
+      - key: AI_PROVIDER
+        value: auto
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+
+      # ---- Pricing -------------------------------------------------------
+      # Optional path to a JSON rate-card override, so vendor price changes can
+      # be applied without a redeploy. See docs/pricing.md.
+      - key: PALIUS_RATE_CARD
+        sync: false
+
+      # ---- Admin ---------------------------------------------------------
+      # Shared secret required by /api/v1/admin/*. Generated once by Render.
+      - key: ADMIN_TOKEN
+        generateValue: true

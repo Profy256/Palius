@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 100">
+  <g transform="translate(0,10) scale(0.8)">
+    <rect x="0" y="0" width="100" height="100" rx="22" ry="22" fill="#F3B300"/>
+    <path d="M50,28 L76,34 L50,40 L24,34 Z" fill="#15151F"/>
+    <path d="M50,44 L76,50 L50,56 L24,50 Z" fill="#15151F"/>
+    <path d="M50,60 L76,66 L50,72 L24,66 Z" fill="#15151F"/>
+  </g>
+  <text x="112" y="50" dominant-baseline="central" font-family="Arial, 'Helvetica Neue', Helvetica, sans-serif" font-weight="800" font-size="46" letter-spacing="0.5" fill="#15151F">palius</text>
+</svg>

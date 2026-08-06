@@ -1,0 +1,6 @@
+{
+  "name": "Palius OS - AI Executive Assistant",
+  "description": "Executive-grade AI Assistant platform for social media management, content calendar planning, competitor analytics, and creative media generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

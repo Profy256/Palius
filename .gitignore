@@ -1,0 +1,21 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Next.js
+.next/
+out/
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# Go backend
+apps/backend/palius-backend
+apps/backend/*.exe
+*.db
+*.db-shm
+*.db-wal

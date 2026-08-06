@@ -1,0 +1,100 @@
+# Palius Social Media OS — full stack (backend API + web app + admin panel).
+#
+#   cp .env.example .env    # optional: add your AI provider keys
+#   docker compose up -d --build
+#
+# URLs:
+#   App     -> http://localhost:3000
+#   Admin   -> http://localhost:3001
+#   API     -> http://localhost:8080/api/v1
+#
+# The frontend/admin hit the API from the BROWSER, so the backend port is
+# published on the host. If you access from another machine, change the
+# NEXT_PUBLIC_PALIUS_API build args to your machine's host/IP.
+
+services:
+  backend:
+    build:
+      context: ./apps/backend
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      PALIUS_DB: /data/palius.db
+      AI_PROVIDER: ${AI_PROVIDER:-auto}
+      # OpenAI / OpenAI-compatible
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # Anthropic Claude
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      # Google Gemini
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      # DeepSeek (OpenAI-compatible)
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      # OpenRouter (many models)
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-4}
+      # Ollama (local, OpenAI-compatible) — reach it via host.docker.internal
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+    ports:
+      - "8080:8080"
+    volumes:
+      - palius_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      args:
+        NEXT_PUBLIC_PALIUS_API: http://localhost:8080/api/v1
+        NEXT_PUBLIC_PALIUS_USER_ID: user-1
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  admin:
+    build:
+      context: ./apps/admin
+      args:
+        NEXT_PUBLIC_PALIUS_API: http://localhost:8080/api/v1
+        NEXT_PUBLIC_PALIUS_USER_ID: user-1
+    restart: unless-stopped
+    environment:
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3001/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  palius_data:
