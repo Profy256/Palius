@@ -20,3 +20,6 @@ apps/backend/*.exe
 *.db-shm
 *.db-wal
 *.deb
+
+# Vercel
+.vercel
