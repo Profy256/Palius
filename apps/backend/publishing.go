@@ -117,6 +117,11 @@ type BlogPublishRequest struct {
 
 	// Reddit-specific: refuse to guess a community.
 	Subreddit string `json:"subreddit"`
+
+	// OwnerID is who is publishing, used to find their stored browser sessions.
+	// Set by the handler from the request, never from the body — trusting the
+	// caller here would let anyone publish with someone else's session.
+	OwnerID string `json:"-"`
 }
 
 // BlogPublishResult is the per-destination outcome.
@@ -155,6 +160,17 @@ func PublishBlog(ctx context.Context, req BlogPublishRequest) []BlogPublishResul
 		default:
 			r = exportOnly(dest, req)
 		}
+
+		// "export" means no API credential was configured — or, for Substack,
+		// that no write API exists at all. That is precisely the gap Level 3
+		// fills, so try the user's browser session before giving up and
+		// handing back a draft to paste by hand.
+		if r.Status == "export" {
+			if viaBrowser, ok := publishViaBrowserConnection(ctx, dest, req); ok {
+				r = viaBrowser
+			}
+		}
+
 		r.Destination = dest
 		results = append(results, r)
 	}

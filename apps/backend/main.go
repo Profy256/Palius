@@ -36,6 +36,12 @@ func main() {
 		// Viral research
 		api.POST("/viral/research", handleViralResearch)
 
+		// AI advisor chat & one-shot post optimisation
+		registerAdvisorRoutes(api)
+
+		// Reading text out of uploaded PDFs and Word documents
+		registerExtractRoutes(api)
+
 		// Per-platform analytics
 		api.GET("/analytics/:platform", handleAnalytics)
 
@@ -48,6 +54,15 @@ func main() {
 		// Platform connections, stored credentials & OAuth
 		registerConnectionRoutes(api)
 		registerOAuthRoutes(api)
+
+		// Level 3 — signing in to platforms through the embedded browser
+		registerBrowserRoutes(api)
+
+		// Customer-facing subscription & credit-pack purchase
+		registerAccountRoutes(api)
+
+		// "Report an issue" — open to any signed-in user
+		registerSupportRoutes(api)
 
 		// Admin — usage tracking. Guarded by ADMIN_TOKEN: these endpoints
 		// expose every customer's spend and let quotas be rewritten, so they
@@ -64,6 +79,15 @@ func main() {
 
 			// Economics & monitoring
 			registerAdminEconomicsRoutes(admin)
+
+			// Customers, segments, revenue, live activity & audit
+			registerAdminCustomerRoutes(admin)
+
+			// Support queue
+			registerAdminSupportRoutes(admin)
+
+			// Spreadsheet exports
+			registerAdminExportRoutes(admin)
 		}
 	}
 
@@ -123,9 +147,12 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		// X-User-Id is sent on every call from both web apps for usage
-		// attribution; omitting it here fails the preflight and blocks the
-		// browser from reaching the API at all.
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Requested-With, X-User-Id")
+		// attribution; X-Admin-Token carries the admin secret and X-Admin-Actor
+		// names the operator for the audit trail. Omitting any of them here
+		// fails the preflight and blocks the browser from reaching the API at
+		// all — silently, which is the worst way to find out.
+		c.Header("Access-Control-Allow-Headers",
+			"Origin, Content-Type, Accept, Authorization, X-Requested-With, X-User-Id, X-Admin-Token, X-Admin-Actor")
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
@@ -176,6 +203,9 @@ func handleHealth(c *gin.Context) {
 		"provider": resolveProvider(),
 		"model":    activeModel(),
 		"env":      env("APP_ENV", "development"),
+		// Which providers are in the chain and which are currently parked, so a
+		// silent failover is visible without reading the logs.
+		"aiChain": aiChainStatus(),
 	})
 }
 

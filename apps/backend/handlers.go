@@ -18,40 +18,56 @@ func systemJSON() string {
 	return systemPrompt + " Always respond with valid JSON only, no markdown fences."
 }
 
-// jsonFromAI runs a prompt against the configured provider and tries to parse
-// the model output as the target type. It returns the provider-reported usage
-// so the caller can persist it to the ledger.
-func jsonFromAI(ctx context.Context, system, user string, out interface{}) (*TokenUsage, error) {
-	text, usage, err := callAI(ctx, system, user, 0.7, true)
+// jsonFromAI runs a prompt down the provider chain and tries to parse the model
+// output as the target type. It returns the whole result — usage plus which
+// provider actually answered — so the caller can persist the spend against the
+// right vendor.
+func jsonFromAI(ctx context.Context, system, user string, out interface{}) (AIResult, error) {
+	res, err := callAIChain(ctx, system, user, 0.7, true)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
-	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(text, "```json"), "```"))
+	text := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(res.Text, "```json"), "```"))
 	if err := json.Unmarshal([]byte(text), out); err != nil {
-		return usage, err
+		return res, err
 	}
-	return usage, nil
+	return res, nil
 }
 
 // userId returns the caller id from the X-User-Id header, defaulting to user-1.
+// It also stamps last_seen_at, which is what lets the admin panel distinguish a
+// registered account from an active one.
 func userId(c *gin.Context) string {
-	if v := c.GetHeader("X-User-Id"); v != "" {
+	v := c.GetHeader("X-User-Id")
+	if v == "" {
+		v = "user-1"
+	} else {
 		ensureUser(v, "Workspace "+v)
-		return v
 	}
-	return "user-1"
+	touchUser(v)
+	return v
 }
 
 // aiCall runs a provider call and, on success, records it in the usage ledger.
 // It returns whether the call produced usable output.
 func aiCall(c *gin.Context, taskType, system, userPrompt string, out interface{}) bool {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	// Wide enough for a slow primary AND a fallback behind it. At the old 60s
+	// a hanging provider used the whole budget, so the chain never reached the
+	// one that worked and the customer silently got canned text instead.
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 150*time.Second)
 	defer cancel()
-	usage, err := jsonFromAI(ctx, system, userPrompt, out)
+	res, err := jsonFromAI(ctx, system, userPrompt, out)
 	if err != nil {
 		return false
 	}
-	recordTextUsage(userId(c), usage, taskType, resolveProvider(), activeModel())
+	// Attribute the spend to whichever provider answered. Recording the primary
+	// regardless would make the admin panel's per-model cost and margin figures
+	// wrong the moment a fallback served the request.
+	recordTextUsage(userId(c), res.Usage, taskType, res.Provider, res.Model)
+	if res.Degraded {
+		c.Header("X-AI-Degraded", "true")
+		c.Header("X-AI-Provider", res.Provider)
+	}
 	return true
 }
 

@@ -19,3 +19,4 @@ apps/backend/*.exe
 *.db
 *.db-shm
 *.db-wal
+*.deb

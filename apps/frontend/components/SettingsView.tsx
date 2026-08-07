@@ -11,6 +11,7 @@ import {
   Key, 
   Sliders
 } from 'lucide-react';
+import { SupportSection } from '@/components/SupportSection';
 
 export function SettingsView() {
   const [toneStyle, setToneStyle] = useState('Executive & Authoritative');
@@ -106,6 +107,8 @@ export function SettingsView() {
           </div>
         </div>
       </div>
+
+      <SupportSection />
     </div>
   );
 }

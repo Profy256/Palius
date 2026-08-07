@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { CalendarPost, PlatformType } from '@/lib/types';
 import { SOCIAL_PLATFORMS } from '@/lib/platforms';
+import { optimizePost, OptimizeResponse } from '@/lib/api';
 import { 
   X, 
   Sparkles, 
@@ -31,7 +32,8 @@ export function ComposeContentModal({ isOpen, onClose, onAddPost }: ComposeConte
   const [captionStyle, setCaptionStyle] = useState<string>('Professional');
   const [hashtags, setHashtags] = useState<string[]>(['#ExecutiveOS', '#AIAutomation']);
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [optimizationResult, setOptimizationResult] = useState<any>(null);
+  const [optimizationResult, setOptimizationResult] = useState<OptimizeResponse | null>(null);
+  const [optimizeError, setOptimizeError] = useState('');
   const [showAbVariants, setShowAbVariants] = useState(false);
 
   if (!isOpen) return null;
@@ -42,22 +44,25 @@ export function ComposeContentModal({ isOpen, onClose, onAddPost }: ComposeConte
 
   const handleGenerateCaption = async () => {
     setIsOptimizing(true);
-    try {
-      const res = await fetch('/api/optimize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ caption, platform, hook, style: captionStyle })
-      });
-      const data = await res.json();
-      setOptimizationResult(data);
-      if (data.improvedCaption) setCaption(data.improvedCaption);
-      if (data.hashtags) setHashtags(data.hashtags);
-      if (data.hooks && data.hooks.length > 0) setHook(data.hooks[0]);
-    } catch (e) {
-      console.error(e);
-    } finally {
+    setOptimizeError('');
+
+    // Goes to the Go backend, so the rewrite uses the same provider — and is
+    // metered by the same ledger — as every other AI feature.
+    const data = await optimizePost({ caption, platform, hook, style: captionStyle });
+
+    if (!data) {
+      setOptimizeError(
+        "Couldn't reach the AI service. Check the backend is running with an AI provider configured.",
+      );
       setIsOptimizing(false);
+      return;
     }
+
+    setOptimizationResult(data);
+    if (data.improvedCaption) setCaption(data.improvedCaption);
+    if (data.hashtags?.length) setHashtags(data.hashtags);
+    if (data.hooks?.length) setHook(data.hooks[0]);
+    setIsOptimizing(false);
   };
 
   const handlePublish = (status: 'SCHEDULED' | 'AI DRAFT') => {
@@ -178,7 +183,7 @@ export function ComposeContentModal({ isOpen, onClose, onAddPost }: ComposeConte
                 className="text-brand-400 hover:underline flex items-center gap-1 font-semibold text-[11px]"
               >
                 <Sparkles className="w-3 h-3" />
-                {isOptimizing ? 'Optimizing AI Content...' : 'Generate & Enhance with Gemini'}
+                {isOptimizing ? 'Optimizing AI Content...' : 'Generate & Enhance with AI'}
               </button>
             </div>
             <textarea
@@ -188,6 +193,15 @@ export function ComposeContentModal({ isOpen, onClose, onAddPost }: ComposeConte
               onChange={e => setCaption(e.target.value)}
               className="w-full bg-card border border-line rounded-xl p-3.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-brand-500/50 leading-relaxed resize-none"
             />
+            {optimizeError && (
+              <p className="text-[11px] text-red-300 leading-relaxed">{optimizeError}</p>
+            )}
+            {optimizationResult?.critique && !optimizeError && (
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                <span className="font-semibold text-brand-300">Score {optimizationResult.score}/100.</span>{' '}
+                {optimizationResult.critique}
+              </p>
+            )}
           </div>
 
           {/* Smart Hashtags & A/B Testing Toggle */}

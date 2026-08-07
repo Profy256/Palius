@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 )
 
@@ -81,19 +82,24 @@ type APIMapping struct {
 	URLPath string `json:"urlPath"`
 }
 
+// composeSelectors locates the parts of an editor. Named rather than inline so
+// the built-in compose mappings in browser.go can be written against the same
+// shape a user-defined destination uses.
+type composeSelectors struct {
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	Tags        string `json:"tags"`
+	CoverUpload string `json:"coverUpload"`
+	PublishBtn  string `json:"publishButton"`
+	DraftBtn    string `json:"draftButton"`
+}
+
 // BrowserMapping drives a compose form through the embedded browser when the
 // site has no API. Mirrors the connector-script model used for social posting.
 type BrowserMapping struct {
-	LoginURL   string `json:"loginUrl"`
-	ComposeURL string `json:"composeUrl"`
-	Selectors  struct {
-		Title       string `json:"title"`
-		Body        string `json:"body"`
-		Tags        string `json:"tags"`
-		CoverUpload string `json:"coverUpload"`
-		PublishBtn  string `json:"publishButton"`
-		DraftBtn    string `json:"draftButton"`
-	} `json:"selectors"`
+	LoginURL   string           `json:"loginUrl"`
+	ComposeURL string           `json:"composeUrl"`
+	Selectors  composeSelectors `json:"selectors"`
 	// SessionRef points at the encrypted cookie jar captured at login time.
 	SessionRef string `json:"sessionRef"`
 }
@@ -168,7 +174,7 @@ func publishToCustom(ctx context.Context, d CustomDestination, req BlogPublishRe
 		if err := json.Unmarshal(d.Config, &m); err != nil {
 			return BlogPublishResult{Status: "failed", Message: "invalid browser mapping: " + err.Error()}
 		}
-		return publishViaBrowser(ctx, d.Name, m, req)
+		return publishViaBrowser(ctx, d.Name, d.UserID, m, req)
 
 	default:
 		return exportOnly(d.Name, req)
@@ -236,13 +242,16 @@ func publishViaMapping(ctx context.Context, name string, m APIMapping, req BlogP
 // publishViaBrowser hands the job to the Playwright worker. The worker is a
 // separate service (see DEPLOYMENT.md) because it needs a real Chromium; when
 // it is not deployed we say so plainly rather than silently dropping the post.
-func publishViaBrowser(ctx context.Context, name string, m BrowserMapping, req BlogPublishRequest) BlogPublishResult {
-	worker := env("PLAYWRIGHT_WORKER_URL", "")
-	if worker == "" {
+//
+// The session is resolved and decrypted here rather than in the worker: the
+// worker holds no database and no encryption key, which is what lets it be
+// restarted or scaled without anyone's login going with it.
+func publishViaBrowser(ctx context.Context, name, uid string, m BrowserMapping, req BlogPublishRequest) BlogPublishResult {
+	if !browserWorkerRunning() {
 		return BlogPublishResult{
 			Status: "export",
-			Message: name + ": browser publishing needs the Playwright worker " +
-				"(set PLAYWRIGHT_WORKER_URL). The draft is ready to paste.",
+			Message: name + ": browser publishing needs the Playwright worker — " +
+				browserWorkerHealth().Detail + " The draft is ready to paste.",
 			ExportBody: "# " + req.Title + "\n\n" + req.Body,
 		}
 	}
@@ -251,20 +260,28 @@ func publishViaBrowser(ctx context.Context, name string, m BrowserMapping, req B
 			Message: name + ": not logged in — connect the site through the embedded browser first"}
 	}
 
+	state := browserStorageStateFor(m.SessionRef, uid)
+	if state == "" {
+		return BlogPublishResult{Status: "failed",
+			Message: name + ": the stored browser session is missing or expired — sign in again through the embedded browser"}
+	}
+	var storageState interface{}
+	if err := json.Unmarshal([]byte(state), &storageState); err != nil {
+		return BlogPublishResult{Status: "failed", Message: name + ": stored session is unreadable"}
+	}
+
 	var out struct {
 		URL   string `json:"url"`
 		Error string `json:"error"`
 	}
-	status, err := postJSON(ctx, strings.TrimRight(worker, "/")+"/publish/blog", map[string]interface{}{
-		"composeUrl": m.ComposeURL,
-		"sessionRef": m.SessionRef,
-		"selectors":  m.Selectors,
-		"title":      req.Title,
-		"body":       req.Body,
-		"tags":       req.Tags,
-		"draft":      req.PublishAsDraft,
-	}, map[string]string{
-		"Authorization": "Bearer " + env("PLAYWRIGHT_WORKER_TOKEN", ""),
+	status, err := workerCall(ctx, http.MethodPost, "/publish/blog", map[string]interface{}{
+		"composeUrl":   m.ComposeURL,
+		"storageState": storageState,
+		"selectors":    m.Selectors,
+		"title":        req.Title,
+		"body":         req.Body,
+		"tags":         req.Tags,
+		"draft":        req.PublishAsDraft,
 	}, &out)
 	if err != nil {
 		return BlogPublishResult{Status: "failed", Message: name + ": " + err.Error()}

@@ -25,6 +25,10 @@ import { PLATFORM_IDS } from '@/lib/platforms';
 interface AiHubViewProps {
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
+  // True while the advisor request is in flight. Reasoning models can take the
+  // better part of a minute, and a chat that shows nothing at all in that time
+  // is indistinguishable from one that is broken.
+  isThinking?: boolean;
   artifacts: StudioArtifact[];
   onGenerateArtifact: (prompt: string) => void;
 }
@@ -32,6 +36,7 @@ interface AiHubViewProps {
 export function AiHubView({
   messages,
   onSendMessage,
+  isThinking = false,
   artifacts,
   onGenerateArtifact
 }: AiHubViewProps) {
@@ -192,6 +197,18 @@ export function AiHubView({
                 </div>
               </div>
             ))}
+
+            {isThinking && (
+              <div className="flex gap-3 text-xs justify-start">
+                <div className="w-7 h-7 rounded-lg bg-brand-500/15 border border-brand-500/30 flex items-center justify-center text-brand-400">
+                  <Bot className="w-4 h-4" />
+                </div>
+                <div className="max-w-[80%] p-3.5 rounded-2xl bg-card border border-line text-zinc-400 rounded-tl-none flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-400" />
+                  <span>Thinking… this can take up to a minute on a reasoning model.</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Chat Input Bar */}

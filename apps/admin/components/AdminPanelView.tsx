@@ -19,6 +19,8 @@ import {
   TrendingUp,
   Server,
   RefreshCw,
+  Radio,
+  LifeBuoy,
 } from 'lucide-react';
 import {
   fetchAdminOverview,
@@ -31,8 +33,15 @@ import {
   UsageEvent,
 } from '@/lib/api';
 import { EconomicsDashboard } from '@/components/EconomicsDashboard';
+import { CustomersView } from '@/components/CustomersView';
+import { IssuesView } from '@/components/IssuesView';
+import { MonitorView } from '@/components/MonitorView';
+import { ExportMenu } from '@/components/ExportMenu';
+import { fetchIssues } from '@/lib/api';
 
-type SubTab = 'economics' | 'overview' | 'users' | 'usage';
+const SUBTABS = ['customers', 'economics', 'monitor', 'issues', 'overview', 'users', 'usage'] as const;
+
+type SubTab = (typeof SUBTABS)[number];
 
 const fmt = (n: number) => n.toLocaleString();
 
@@ -73,7 +82,8 @@ const PROVIDER_COLORS: Record<string, string> = {
 };
 
 export function AdminPanelView() {
-  const [subtab, setSubtab] = useState<SubTab>('economics');
+  const [subtab, setSubtab] = useState<SubTab>('customers');
+  const [openIssues, setOpenIssues] = useState(0);
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [events, setEvents] = useState<UsageEvent[]>([]);
@@ -101,6 +111,40 @@ export function AdminPanelView() {
 
   useEffect(() => {
     loadAll();
+  }, []);
+
+  // Tabs live in the URL hash so an operator can bookmark the support queue or
+  // paste a colleague a link straight to it, rather than "open admin, click
+  // the fourth tab".
+  useEffect(() => {
+    const apply = () => {
+      const id = window.location.hash.replace('#', '') as SubTab;
+      if (SUBTABS.some(t => t === id)) setSubtab(id);
+    };
+    apply();
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
+  }, []);
+
+  const selectTab = (id: SubTab) => {
+    setSubtab(id);
+    window.history.replaceState(null, '', `#${id}`);
+  };
+
+  // The support badge has to be right without opening the tab — an unread
+  // count that only appears once you look at it is not a count.
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      const res = await fetchIssues({ status: 'open' });
+      if (!cancelled) setOpenIssues(res?.stats?.open ?? 0);
+    };
+    poll();
+    const t = setInterval(poll, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, []);
 
   const openUserUsage = async (u: AdminUser) => {
@@ -132,36 +176,48 @@ export function AdminPanelView() {
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-brand-400" />
-            <span>Admin Panel — Usage &amp; Billing Control</span>
+            <span>Admin Panel — Full Platform Control</span>
           </h1>
           <p className="text-xs text-zinc-400 mt-1">
-            Track every user's AI token usage, credits for image/video generation, quotas, and provider spend.
+            Every registered, active and paying customer, subscriptions and credit purchases,
+            reported issues, AI spend and live platform activity — with full operator privileges.
           </p>
         </div>
-        <button
-          onClick={loadAll}
-          className="px-3 py-2 rounded-xl bg-card hover:bg-raised border border-line text-xs font-semibold text-zinc-300 flex items-center gap-1.5"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <ExportMenu dataset="all" label="Export everything" />
+          <button
+            onClick={loadAll}
+            className="px-3 py-2 rounded-xl bg-card hover:bg-raised border border-line text-xs font-semibold text-zinc-300 flex items-center gap-1.5"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Subtabs */}
-      <div className="flex items-center gap-3 border-b border-line pb-2 text-xs">
+      <div className="flex flex-wrap items-center gap-3 border-b border-line pb-2 text-xs">
         {([
+          { id: 'customers', label: 'Customers', icon: <UsersIcon className="w-3.5 h-3.5" /> },
           { id: 'economics', label: 'Business & Economics', icon: <Coins className="w-3.5 h-3.5" /> },
+          { id: 'monitor', label: 'Live Monitor', icon: <Radio className="w-3.5 h-3.5" /> },
+          { id: 'issues', label: 'Reported Issues', icon: <LifeBuoy className="w-3.5 h-3.5" />, badge: openIssues },
           { id: 'overview', label: 'Traffic Overview', icon: <BarChart3 className="w-3.5 h-3.5" /> },
-          { id: 'users', label: 'Users & Quotas', icon: <UsersIcon className="w-3.5 h-3.5" /> },
+          { id: 'users', label: 'Quotas', icon: <Cpu className="w-3.5 h-3.5" /> },
           { id: 'usage', label: 'Usage Log', icon: <Activity className="w-3.5 h-3.5" /> },
-        ] as { id: SubTab; label: string; icon: React.ReactNode }[]).map((t) => (
+        ] as { id: SubTab; label: string; icon: React.ReactNode; badge?: number }[]).map((t) => (
           <button
             key={t.id}
-            onClick={() => setSubtab(t.id)}
+            onClick={() => selectTab(t.id)}
             className={`px-3.5 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-all ${
               subtab === t.id ? 'bg-brand-500/15 text-brand-400 border border-brand-500/30' : 'text-zinc-400 hover:text-white'
             }`}
           >
             {t.icon} {t.label}
+            {!!t.badge && (
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-md bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] font-bold">
+                {t.badge}
+              </span>
+            )}
           </button>
         ))}
         <div className="flex-1" />
@@ -186,6 +242,9 @@ export function AdminPanelView() {
       )}
 
       {/* ============================================================ OVERVIEW */}
+      {subtab === 'customers' && <CustomersView />}
+      {subtab === 'monitor' && <MonitorView />}
+      {subtab === 'issues' && <IssuesView />}
       {subtab === 'economics' && <EconomicsDashboard />}
 
       {subtab === 'overview' && overview && (

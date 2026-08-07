@@ -40,6 +40,7 @@ import {
   ContextDoc,
   RequestedAsset,
   OutputMode,
+  extractDocumentText,
 } from '@/lib/api';
 import { SOCIAL_PLATFORMS, BLOG_DESTINATIONS, resolveDestination, destinationPlatform } from '@/lib/platforms';
 
@@ -201,8 +202,16 @@ export function CreateContentFlow({ isOpen, onClose, onAddPost }: CreateContentF
         // nothing has to be invented for it later.
         setCoverUrl((prev) => prev ?? URL.createObjectURL(f));
       } else if (isPdf) {
+        // The browser cannot read a PDF, so the server extracts the text. Until
+        // this existed the model was handed the file name and nothing else,
+        // while the UI listed the document as if it had been read.
         kind = 'pdf';
-        summary = `PDF document: ${f.name} (product documentation / spec sheet).`;
+        const extracted = await extractDocumentText(f);
+        if (extracted?.text) {
+          summary = extracted.text;
+        } else {
+          summary = `PDF "${f.name}" — ${extracted?.reason ?? 'text could not be extracted, so its contents were not sent to the AI'}.`;
+        }
       } else if (
         f.type === 'text/plain' ||
         f.type === 'text/markdown' ||
@@ -224,8 +233,16 @@ export function CreateContentFlow({ isOpen, onClose, onAddPost }: CreateContentF
           /* ignore */
         }
       } else {
+        // Word documents and anything else the browser can't parse: ask the
+        // server, and say plainly when nothing readable came back.
         kind = 'file';
-        summary = `Document: ${f.name} (${f.type || 'binary file'}) — text not extracted in browser.`;
+        const extracted = await extractDocumentText(f);
+        if (extracted?.text) {
+          kind = extracted.kind === 'docx' ? 'document' : 'text';
+          summary = extracted.text;
+        } else {
+          summary = `Document "${f.name}" — ${extracted?.reason ?? 'no readable text, so its contents were not sent to the AI'}.`;
+        }
       }
       docsToAdd.push({ name: f.name, contentType: f.type || 'document', summary, kind });
     }

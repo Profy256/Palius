@@ -7,10 +7,15 @@ import {
   fetchConnectionCatalog,
   saveConnection,
   startOAuth,
+  startBrowserSession,
+  completeBrowserSession,
+  cancelBrowserSession,
   AuthMethod,
+  BrowserSession,
   ConnectablePlatform,
   ConnectionCatalog,
 } from '@/lib/api';
+import { EmbeddedBrowserView } from './EmbeddedBrowserView';
 import {
   X,
   ShieldCheck,
@@ -23,6 +28,8 @@ import {
   ExternalLink,
   Loader2,
   Ban,
+  LogIn,
+  UserPlus,
 } from 'lucide-react';
 
 interface PlatformConnectionModalProps {
@@ -32,7 +39,10 @@ interface PlatformConnectionModalProps {
   onConnectionSuccess: (platform: string, authLevel: AuthLevel) => void;
 }
 
-type Step = 'select' | 'credentials' | 'connecting' | 'result';
+type Step = 'select' | 'credentials' | 'browser' | 'connecting' | 'result';
+
+/** Level 3 can either sign into an existing account or create a new one. */
+type BrowserMode = 'login' | 'register';
 
 const GROUP_LABELS: Record<string, string> = {
   social: 'Social platforms',
@@ -60,6 +70,12 @@ export function PlatformConnectionModal({
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ status: string; detail: string } | null>(null);
+
+  // Level 3 state.
+  const [browserMode, setBrowserMode] = useState<BrowserMode>('login');
+  const [browserSession, setBrowserSession] = useState<BrowserSession | null>(null);
+  const [browserSignedIn, setBrowserSignedIn] = useState(false);
+  const [savingSession, setSavingSession] = useState(false);
 
   useEffect(() => {
     if (!isOpen || catalog) return;
@@ -94,9 +110,16 @@ export function PlatformConnectionModal({
     setValues({});
     setError('');
     setResult(null);
+    setBrowserSession(null);
+    setBrowserSignedIn(false);
+    setSavingSession(false);
   };
 
+  // Abandoning a login must close the Chromium context behind it. The worker
+  // expires sessions on its own timer too, but leaving a live logged-in browser
+  // open until then is exactly the thing not to do.
   const handleClose = () => {
+    if (browserSession) cancelBrowserSession(browserSession.sessionId);
     reset();
     onClose();
   };
@@ -119,8 +142,66 @@ export function PlatformConnectionModal({
       handleOAuth();
       return;
     }
+    if (method.level === 'level-3') {
+      handleBrowserLogin(browserMode);
+      return;
+    }
     setError('');
     setStep('credentials');
+  };
+
+  // -------------------------------------------------- level 3: browser login
+  //
+  // Opens the platform's own login page inside the worker's Chromium and
+  // streams it here. Nothing is stored until the user says they are through —
+  // which is the only way to handle 2FA without guessing.
+
+  const handleBrowserLogin = async (mode: BrowserMode) => {
+    setError('');
+    setBrowserSignedIn(false);
+    setStep('connecting');
+
+    const res = await startBrowserSession(selectedPlatform, mode);
+    if (!res.ok) {
+      setError(res.error);
+      setStep('select');
+      return;
+    }
+    setBrowserSession(res.session);
+    setBrowserMode(mode);
+    setStep('browser');
+  };
+
+  const saveBrowserSession = async () => {
+    if (!browserSession) return;
+    setSavingSession(true);
+    setError('');
+
+    const res = await completeBrowserSession(browserSession.sessionId);
+    setSavingSession(false);
+    if (!res.ok) {
+      // Stay on the browser view: the usual cause is saving before the login
+      // finished, and the user can simply carry on in the same window.
+      setError(res.error);
+      return;
+    }
+
+    // The worker closes the session once it has been captured, so there is
+    // nothing left to cancel.
+    setBrowserSession(null);
+    setResult({ status: res.connection.status, detail: res.connection.detail });
+    setStep('result');
+    if (res.connection.status === 'verified') {
+      onConnectionSuccess(selectedPlatform, 'level-3' as AuthLevel);
+    }
+  };
+
+  const abandonBrowserSession = () => {
+    if (browserSession) cancelBrowserSession(browserSession.sessionId);
+    setBrowserSession(null);
+    setBrowserSignedIn(false);
+    setError('');
+    setStep('select');
   };
 
   const handleOAuth = async () => {
@@ -176,8 +257,14 @@ export function PlatformConnectionModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in overflow-y-auto">
       {/* Capped to the viewport so the body scrolls instead of the dialog
-          overflowing off-screen and taking its action button with it. */}
-      <div className="w-full max-w-lg max-h-[90vh] flex flex-col rounded-2xl bg-panel border border-line overflow-hidden shadow-2xl">
+          overflowing off-screen and taking its action button with it. The
+          browser step needs far more room — a login page squeezed into 32rem
+          is unusable. */}
+      <div
+        className={`w-full max-h-[90vh] flex flex-col rounded-2xl bg-panel border border-line overflow-hidden shadow-2xl ${
+          step === 'browser' ? 'max-w-5xl' : 'max-w-lg'
+        }`}
+      >
         {/* Header */}
         <div className="shrink-0 p-5 border-b border-line flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -187,9 +274,11 @@ export function PlatformConnectionModal({
             <div>
               <h2 className="text-sm font-bold text-white">Connect Platform Account</h2>
               <p className="text-[11px] text-zinc-400">
-                {step === 'credentials' && platform
-                  ? `${platform.name} — ${method?.name}`
-                  : 'Choose a platform, then how Palius should authenticate'}
+                {step === 'browser' && platform
+                  ? `${platform.name} — ${browserMode === 'register' ? 'create an account' : 'sign in'} on their own page`
+                  : step === 'credentials' && platform
+                    ? `${platform.name} — ${method?.name}`
+                    : 'Choose a platform, then how Palius should authenticate'}
               </p>
             </div>
           </div>
@@ -298,6 +387,44 @@ export function PlatformConnectionModal({
                       );
                     })}
                   </div>
+
+                  {/* Level 3 works just as well for an account that does not
+                      exist yet, so offer both rather than assuming the user
+                      already has one on every platform. */}
+                  {method?.level === 'level-3' && method.available && (
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      {[
+                        {
+                          mode: 'login' as BrowserMode,
+                          icon: LogIn,
+                          label: 'I have an account',
+                          hint: 'Opens the sign-in page',
+                        },
+                        {
+                          mode: 'register' as BrowserMode,
+                          icon: UserPlus,
+                          label: 'Create an account',
+                          hint: 'Opens the sign-up page',
+                        },
+                      ].map(({ mode, icon: Icon, label, hint }) => (
+                        <button
+                          key={mode}
+                          onClick={() => setBrowserMode(mode)}
+                          className={`flex items-start gap-2 p-2.5 rounded-xl border text-left transition-all ${
+                            browserMode === mode
+                              ? 'bg-brand-500/10 border-brand-500/50 text-brand-200'
+                              : 'bg-card border-line text-zinc-300 hover:bg-raised'
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-bold">{label}</div>
+                            <div className="text-[10px] text-zinc-400">{hint}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -354,11 +481,65 @@ export function PlatformConnectionModal({
             </div>
           )}
 
+          {/* ------------------------------------------------- embedded browser */}
+          {step === 'browser' && browserSession && (
+            <div className="space-y-3">
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-brand-500/10 border border-brand-500/30">
+                <Lock className="w-4 h-4 mt-0.5 shrink-0 text-brand-400" />
+                <p className="text-[11px] text-brand-100 leading-relaxed">{browserSession.notice}</p>
+              </div>
+
+              <EmbeddedBrowserView
+                streamUrl={browserSession.streamUrl}
+                onSignedIn={() => setBrowserSignedIn(true)}
+                onClosed={() => {
+                  setError('The browser session ended before it was saved. Start the login again.');
+                  setBrowserSession(null);
+                  setStep('select');
+                }}
+              />
+
+              <div
+                className={`p-3 rounded-xl border text-[11px] leading-relaxed ${
+                  browserSignedIn
+                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
+                    : 'bg-card border-line text-zinc-400'
+                }`}
+              >
+                {browserSignedIn ? (
+                  <>
+                    <span className="font-bold">You look signed in.</span> Save the session to finish. Palius keeps only
+                    what keeps you logged in — encrypted with AES-256-GCM — and never your password.
+                  </>
+                ) : (
+                  <>
+                    Finish signing in above, including any two-factor step. Then press{' '}
+                    <span className="font-bold text-zinc-200">Save session</span>. Palius cannot tell when you are done
+                    on every platform, so it waits for you rather than guessing.
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {step === 'connecting' && (
             <div className="py-10 text-center space-y-4">
               <div className="w-12 h-12 rounded-full border-4 border-brand-500/20 border-t-brand-500 animate-spin mx-auto" />
-              <h3 className="text-sm font-bold text-white">Checking credentials with the provider…</h3>
-              <p className="text-xs text-zinc-400">Palius asks the platform to confirm before calling this connected.</p>
+              {method?.level === 'level-3' ? (
+                <>
+                  <h3 className="text-sm font-bold text-white">
+                    Starting a browser and opening {platform?.name}…
+                  </h3>
+                  <p className="text-xs text-zinc-400">Chromium takes a moment to launch the first time.</p>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-sm font-bold text-white">Checking credentials with the provider…</h3>
+                  <p className="text-xs text-zinc-400">
+                    Palius asks the platform to confirm before calling this connected.
+                  </p>
+                </>
+              )}
             </div>
           )}
 
@@ -400,8 +581,45 @@ export function PlatformConnectionModal({
               disabled={!method?.available}
               className="w-full py-2.5 rounded-xl bg-brand-500 hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed text-ink font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-brand-500/20 transition-all"
             >
-              <span>{method?.level === 'level-2' ? `Continue to ${platform?.name}` : 'Enter credentials'}</span>
+              <span>
+                {method?.level === 'level-2'
+                  ? `Continue to ${platform?.name}`
+                  : method?.level === 'level-3'
+                    ? browserMode === 'register'
+                      ? `Create a ${platform?.name} account`
+                      : `Sign in to ${platform?.name}`
+                    : 'Enter credentials'}
+              </span>
               <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {step === 'browser' && (
+          <div className="shrink-0 p-4 border-t border-line bg-surface flex gap-2">
+            <button
+              onClick={abandonBrowserSession}
+              disabled={savingSession}
+              className="w-1/3 py-2.5 rounded-xl bg-raised hover:bg-raised text-zinc-300 text-xs font-semibold disabled:opacity-40"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={saveBrowserSession}
+              disabled={savingSession}
+              className="w-2/3 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-ink font-semibold text-xs flex items-center justify-center gap-2 transition-all"
+            >
+              {savingSession ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Saving &amp; verifying…</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>Save session</span>
+                </>
+              )}
             </button>
           </div>
         )}

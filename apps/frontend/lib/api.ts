@@ -267,6 +267,7 @@ export interface ConnectionCatalog {
   encryptionAvailable: boolean;
   encryptionNote: string;
   browserWorkerRunning: boolean;
+  browserWorkerDetail?: string;
 }
 
 export interface Connection {
@@ -312,6 +313,74 @@ export async function saveConnection(body: {
 }
 
 /** Asks the backend for the provider auth URL to open in the user's browser. */
+// -------------------------------------------------- level 3: browser login ---
+//
+// Signing in through the embedded browser. The API opens the platform's own
+// login page inside a worker-controlled Chromium and hands back a WebSocket URL
+// that streams it here; keystrokes and clicks go back the other way. The
+// password is typed into the platform's page, never into Palius.
+
+export interface BrowserSession {
+  sessionId: string;
+  platform: string;
+  mode: 'login' | 'register';
+  startUrl: string;
+  streamUrl: string;
+  notice: string;
+}
+
+export async function startBrowserSession(
+  platform: string,
+  mode: 'login' | 'register' = 'login',
+): Promise<{ ok: true; session: BrowserSession } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${PALIUS_API}/browser/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': PALIUS_USER_ID },
+      body: JSON.stringify({ platform, mode }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: `${data.error ?? 'Could not start the login'}${data.detail ? ` — ${data.detail}` : ''}` };
+    }
+    return { ok: true, session: data as BrowserSession };
+  } catch (e) {
+    return { ok: false, error: `Could not reach the Palius API: ${e}` };
+  }
+}
+
+/** Captures the finished login and stores it as a connection. */
+export async function completeBrowserSession(
+  sessionId: string,
+): Promise<{ ok: true; connection: Connection } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${PALIUS_API}/browser/sessions/${encodeURIComponent(sessionId)}/complete`, {
+      method: 'POST',
+      headers: { 'X-User-Id': PALIUS_USER_ID },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: `${data.error ?? 'Could not save the session'}${data.detail ? ` — ${data.detail}` : ''}` };
+    }
+    return { ok: true, connection: data.connection as Connection };
+  } catch (e) {
+    return { ok: false, error: `Could not reach the Palius API: ${e}` };
+  }
+}
+
+/** Closes an abandoned login so the worker is not left holding a browser. */
+export async function cancelBrowserSession(sessionId: string): Promise<void> {
+  try {
+    await fetch(`${PALIUS_API}/browser/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
+      headers: { 'X-User-Id': PALIUS_USER_ID },
+      keepalive: true,
+    });
+  } catch {
+    // Best effort — the worker expires sessions on its own timer anyway.
+  }
+}
+
 export async function startOAuth(platform: string): Promise<{ ok: true; authUrl: string } | { ok: false; error: string }> {
   try {
     const res = await fetch(`${PALIUS_API}/oauth/${encodeURIComponent(platform)}/start`, {
@@ -403,6 +472,125 @@ export function fetchAdminProviders() {
 
 export function updateAdminUser(id: string, patch: { tokenQuota?: number; creditQuota?: number; plan?: string; status?: string }) {
   return putJson<{ ok: boolean; id: string }>(`/admin/users/${encodeURIComponent(id)}`, patch);
+}
+
+// ---------------------------------------------------- document extraction --
+// PDF and DOCX are container formats the browser cannot read. They go to the
+// backend, which pulls the real text out, so an attached spec sheet actually
+// reaches the model instead of contributing only its file name.
+
+export interface ExtractedDoc {
+  name: string;
+  kind: 'pdf' | 'docx' | 'text' | 'unsupported';
+  text: string;
+  chars: number;
+  pages?: number;
+  truncated: boolean;
+  reason?: string;
+}
+
+export async function extractDocumentText(file: File): Promise<ExtractedDoc | null> {
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch(`${PALIUS_API}/context/extract`, {
+      method: 'POST',
+      // No Content-Type header: the browser must set the multipart boundary.
+      headers: { 'X-User-Id': PALIUS_USER_ID },
+      body: form,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as ExtractedDoc;
+  } catch {
+    return null;
+  }
+}
+
+// ------------------------------------------------------------- advisor ----
+// The AI advisor and the post optimiser go through the backend like every
+// other AI feature, so there is one provider key, one rate card and one usage
+// ledger. They previously called Google Gemini from a Next.js route, which
+// meant a second AI configuration the cost engine could not see.
+
+export interface AdvisorChatTurn {
+  sender: 'user' | 'ai';
+  text: string;
+}
+
+export interface AdvisorChatResponse {
+  reply: string;
+  status: 'success' | 'unavailable';
+  provider: string;
+  model: string;
+}
+
+export interface OptimizeRequest {
+  caption: string;
+  platform?: string;
+  hook?: string;
+  style?: string;
+}
+
+export interface OptimizeResponse {
+  score: number;
+  improvedCaption: string;
+  hooks: string[];
+  hashtags: string[];
+  critique: string;
+}
+
+export function askAdvisor(message: string, history: AdvisorChatTurn[] = [], context = '') {
+  return postJson<AdvisorChatResponse>('/advisor/chat', { message, history, context });
+}
+
+export function optimizePost(req: OptimizeRequest) {
+  return postJson<OptimizeResponse>('/advisor/optimize', req);
+}
+
+// ------------------------------------------------------------- support ----
+
+// An issue the customer reported. The page and platform travel with it so the
+// operator does not have to ask "where were you?" as a first reply.
+export interface IssueReport {
+  id: string;
+  userId: string;
+  category: string;
+  severity: string;
+  subject: string;
+  body: string;
+  page: string;
+  platform: string;
+  operationId: string;
+  contactEmail: string;
+  status: string;
+  assignedTo: string;
+  adminNote: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string;
+}
+
+export interface IssueDraft {
+  category?: string;
+  severity?: string;
+  subject: string;
+  body: string;
+  page?: string;
+  platform?: string;
+  operationId?: string;
+  contactEmail?: string;
+}
+
+export function fetchIssueMeta() {
+  return getJson<{ categories: string[]; severities: string[]; statuses: string[] }>('/issues/meta');
+}
+
+export function submitIssue(draft: IssueDraft) {
+  return postJson<{ ok: boolean; issue: IssueReport; status: string }>('/issues', draft);
+}
+
+export function fetchMyIssues() {
+  return getJson<{ issues: IssueReport[] }>('/issues');
 }
 
 // --------------------------------------------------- local fallbacks ------

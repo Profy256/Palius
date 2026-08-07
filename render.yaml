@@ -75,3 +75,61 @@ services:
       # Shared secret required by /api/v1/admin/*. Generated once by Render.
       - key: ADMIN_TOKEN
         generateValue: true
+
+      # ---- Credential encryption -----------------------------------------
+      # AES-256-GCM key for every stored credential, including captured
+      # browser sessions. Losing or rotating it invalidates everything already
+      # stored, so Render generates it once and keeps it.
+      - key: PALIUS_SECRET_KEY
+        generateValue: true
+
+      # ---- Level 3: browser login ----------------------------------------
+      # Private hostname: the API reaches the worker inside Render's network,
+      # so the worker never needs to accept requests from the internet on its
+      # private API.
+      - key: PLAYWRIGHT_WORKER_URL
+        fromService:
+          name: palius-worker
+          type: pweb
+          property: hostport
+      # The frame stream is opened by the USER'S browser, which cannot resolve
+      # the private hostname above — so this one is the public URL.
+      - key: PLAYWRIGHT_WORKER_PUBLIC_URL
+        sync: false
+      - key: PLAYWRIGHT_WORKER_TOKEN
+        fromService:
+          name: palius-worker
+          type: pweb
+          envVarKey: WORKER_TOKEN
+
+  # -------------------------------------------------------------------------
+  # Playwright browser worker — Level 3 connectors.
+  #
+  # A private service: only palius-backend calls its API. The streaming socket
+  # is the one thing the user's browser touches, which is why the public URL is
+  # configured separately above.
+  #
+  # `standard` is the floor, not a preference. Chromium needs ~1GB per session
+  # and a `starter` instance (512MB) will OOM partway through a login.
+  # -------------------------------------------------------------------------
+  - type: pweb
+    name: palius-worker
+    runtime: docker
+    plan: standard
+    region: oregon
+    rootDir: apps/worker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      - key: PORT
+        value: 8090
+      - key: WORKER_TOKEN
+        generateValue: true
+      # Origins allowed to open the frame stream — the deployed web app.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Each concurrent login is a Chromium context. Raise only with the plan.
+      - key: WORKER_MAX_SESSIONS
+        value: 4

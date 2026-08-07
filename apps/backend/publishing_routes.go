@@ -46,6 +46,9 @@ func handlePublishBlog(c *gin.Context) {
 	}
 
 	uid := userId(c)
+	// Taken from the request, never the body: this is what decides whose
+	// stored browser sessions a publish may use.
+	req.OwnerID = uid
 
 	// Split the requested destinations into built-in and user-defined.
 	builtIn := map[string]bool{}

@@ -106,9 +106,16 @@ func openDB() {
 	}
 	migratePlans()
 	initMetering()
+	initAccounts()
+	initSupport()
 	initDestinations()
 	initConnections()
+	initBrowserSessions()
 	seedIfEmpty()
+	// Accounts and issues seed after users exist, and are separately guarded so
+	// an existing install gains the new demo rows without re-seeding users.
+	seedAccounts()
+	seedIssues()
 }
 
 func seedIfEmpty() {

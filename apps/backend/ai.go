@@ -64,8 +64,15 @@ func aiAvailable() bool {
 	return resolveProvider() != "none"
 }
 
-func activeModel() string {
-	switch resolveProvider() {
+func activeModel() string { return modelFor(resolveProvider()) }
+
+func activeBaseURL() string { return baseURLFor(resolveProvider()) }
+
+// modelFor returns the model configured for a named provider. It takes the
+// provider explicitly rather than reading the active one, so the fallback chain
+// can call a provider that is not the primary.
+func modelFor(provider string) string {
+	switch provider {
 	case "gemini":
 		return env("GEMINI_MODEL", "gemini-2.0-flash")
 	case "anthropic":
@@ -83,8 +90,8 @@ func activeModel() string {
 	}
 }
 
-func activeBaseURL() string {
-	switch resolveProvider() {
+func baseURLFor(provider string) string {
+	switch provider {
 	case "anthropic":
 		return env("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
 	case "deepseek":
@@ -98,19 +105,49 @@ func activeBaseURL() string {
 	}
 }
 
+// keyFor returns the API key for a provider, or "" when it is not configured.
+// Ollama is local and needs none, so it reports itself as always keyed.
+func keyFor(provider string) string {
+	switch provider {
+	case "gemini":
+		return env("GEMINI_API_KEY", "")
+	case "anthropic":
+		return env("ANTHROPIC_API_KEY", "")
+	case "deepseek":
+		return env("DEEPSEEK_API_KEY", "")
+	case "openrouter":
+		return env("OPENROUTER_API_KEY", "")
+	case "ollama":
+		return "local"
+	default:
+		return env("OPENAI_API_KEY", "")
+	}
+}
+
+// providerConfigured reports whether a provider could be called at all. The
+// chain skips the ones that are not, so listing a provider you have not set up
+// yet costs nothing.
+func providerConfigured(provider string) bool { return keyFor(provider) != "" }
+
 // callAI sends a single-turn prompt to the configured provider and returns
 // text plus the provider-reported token usage. When jsonMode is true providers
 // that support it are forced into JSON output; all providers are additionally
 // told to emit JSON via the system prompt.
 func callAI(ctx context.Context, system, user string, temperature float64, jsonMode bool) (string, *TokenUsage, error) {
-	switch resolveProvider() {
+	res, err := callAIChain(ctx, system, user, temperature, jsonMode)
+	return res.Text, res.Usage, err
+}
+
+// callProvider sends the prompt to one named provider, with no fallback.
+func callProvider(ctx context.Context, provider, system, user string, temperature float64, jsonMode bool) (string, *TokenUsage, error) {
+	switch provider {
 	case "gemini":
-		return callGemini(ctx, system, user, temperature, jsonMode)
+		return callGemini(ctx, provider, system, user, temperature, jsonMode)
 	case "anthropic":
-		return callAnthropic(ctx, system, user, temperature, jsonMode)
+		return callAnthropic(ctx, provider, system, user, temperature, jsonMode)
 	default:
 		// OpenAI-compatible path (openai, deepseek, openrouter, ollama, custom).
-		return callOpenAICompatible(ctx, system, user, temperature, jsonMode)
+		return callOpenAICompatible(ctx, provider, system, user, temperature, jsonMode)
 	}
 }
 
@@ -156,8 +193,8 @@ type geminiResponse struct {
 	} `json:"error"`
 }
 
-func callGemini(ctx context.Context, system, user string, temperature float64, jsonMode bool) (string, *TokenUsage, error) {
-	key := env("GEMINI_API_KEY", "")
+func callGemini(ctx context.Context, provider, system, user string, temperature float64, jsonMode bool) (string, *TokenUsage, error) {
+	key := keyFor(provider)
 	if key == "" {
 		return "", nil, fmt.Errorf("GEMINI_API_KEY not set")
 	}
@@ -176,7 +213,7 @@ func callGemini(ctx context.Context, system, user string, temperature float64, j
 		return "", nil, err
 	}
 
-	url := "https://generativelanguage.googleapis.com/v1beta/models/" + activeModel() + ":generateContent?key=" + key
+	url := "https://generativelanguage.googleapis.com/v1beta/models/" + modelFor(provider) + ":generateContent?key=" + key
 	resp, err := doPost(ctx, url, body, map[string]string{"Content-Type": "application/json"})
 	if err != nil {
 		return "", nil, err
@@ -238,8 +275,8 @@ type anthropicResponse struct {
 	} `json:"error"`
 }
 
-func callAnthropic(ctx context.Context, system, user string, temperature float64, jsonMode bool) (string, *TokenUsage, error) {
-	key := env("ANTHROPIC_API_KEY", "")
+func callAnthropic(ctx context.Context, provider, system, user string, temperature float64, jsonMode bool) (string, *TokenUsage, error) {
+	key := keyFor(provider)
 	if key == "" {
 		return "", nil, fmt.Errorf("ANTHROPIC_API_KEY not set")
 	}
@@ -249,7 +286,7 @@ func callAnthropic(ctx context.Context, system, user string, temperature float64
 		system += "\nReturn valid JSON only, no markdown fences."
 	}
 	payload := anthropicRequest{
-		Model:       activeModel(),
+		Model:       modelFor(provider),
 		MaxTokens:   4096,
 		Temperature: temperature,
 		System:      system,
@@ -260,7 +297,7 @@ func callAnthropic(ctx context.Context, system, user string, temperature float64
 		return "", nil, err
 	}
 
-	resp, err := doPost(ctx, activeBaseURL()+"/v1/messages", body, map[string]string{
+	resp, err := doPost(ctx, baseURLFor(provider)+"/v1/messages", body, map[string]string{
 		"Content-Type":      "application/json",
 		"x-api-key":         key,
 		"anthropic-version": "2023-06-01",
@@ -307,11 +344,11 @@ type oaiMessage struct {
 }
 
 type oaiChatRequest struct {
-	Model          string           `json:"model"`
-	Messages       []oaiMessage     `json:"messages"`
-	Temperature    float64          `json:"temperature"`
-	MaxTokens      int              `json:"max_tokens"`
-	ResponseFormat *oaiResponseFmt  `json:"response_format,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []oaiMessage    `json:"messages"`
+	Temperature    float64         `json:"temperature"`
+	MaxTokens      int             `json:"max_tokens"`
+	ResponseFormat *oaiResponseFmt `json:"response_format,omitempty"`
 }
 
 type oaiResponseFmt struct {
@@ -336,18 +373,10 @@ type oaiChatResponse struct {
 
 // callOpenAICompatible handles openai, deepseek, openrouter, ollama and any
 // OpenAI-compatible endpoint (custom OPENAI_BASE_URL).
-func callOpenAICompatible(ctx context.Context, system, user string, temperature float64, jsonMode bool) (string, *TokenUsage, error) {
-	p := resolveProvider()
-	var key string
-	switch p {
-	case "deepseek":
-		key = env("DEEPSEEK_API_KEY", "")
-	case "openrouter":
-		key = env("OPENROUTER_API_KEY", "")
-	case "ollama":
-		key = ""
-	default:
-		key = env("OPENAI_API_KEY", "")
+func callOpenAICompatible(ctx context.Context, p, system, user string, temperature float64, jsonMode bool) (string, *TokenUsage, error) {
+	key := keyFor(p)
+	if p == "ollama" {
+		key = "" // local, no Authorization header
 	}
 	if key == "" && p != "ollama" {
 		return "", nil, fmt.Errorf("missing API key for provider %q", p)
@@ -360,7 +389,7 @@ func callOpenAICompatible(ctx context.Context, system, user string, temperature 
 	messages = append(messages, oaiMessage{Role: "user", Content: user})
 
 	payload := oaiChatRequest{
-		Model:       activeModel(),
+		Model:       modelFor(p),
 		Messages:    messages,
 		Temperature: temperature,
 		MaxTokens:   4096,
@@ -379,7 +408,7 @@ func callOpenAICompatible(ctx context.Context, system, user string, temperature 
 		headers["Authorization"] = "Bearer " + key
 	}
 
-	resp, err := doPost(ctx, activeBaseURL()+"/chat/completions", body, headers)
+	resp, err := doPost(ctx, baseURLFor(p)+"/chat/completions", body, headers)
 	if err != nil {
 		return "", nil, err
 	}

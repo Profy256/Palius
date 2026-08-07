@@ -3,7 +3,7 @@
 import React from 'react';
 import { NavTab } from '@/lib/types';
 import { USER_AVATAR } from '@/lib/mockData';
-import { Search, Bell, Sparkles, ShieldCheck, Plus, Menu } from 'lucide-react';
+import { Search, Bell, Sparkles, ShieldCheck, Plus, Menu, LifeBuoy } from 'lucide-react';
 
 interface TopBarProps {
   currentTab: NavTab;
@@ -11,6 +11,7 @@ interface TopBarProps {
   unreadDmsCount?: number;
   onCreateContent?: () => void;
   onToggleSidebar?: () => void;
+  onReportIssue?: () => void;
 }
 
 const TITLES: Record<NavTab, string> = {
@@ -30,6 +31,7 @@ export function TopBar({
   unreadDmsCount = 0,
   onCreateContent,
   onToggleSidebar,
+  onReportIssue,
 }: TopBarProps) {
   return (
     <header className="h-14 shrink-0 bg-surface border-b border-line px-3 sm:px-6 flex items-center justify-between gap-3">
@@ -96,6 +98,19 @@ export function TopBar({
           <Sparkles className="w-3.5 h-3.5" />
           <span className="hidden lg:inline">Ask AI Assistant</span>
         </button>
+
+        {/* Reachable from every screen: a problem you can only report from one
+            page is a problem that mostly goes unreported. */}
+        {onReportIssue && (
+          <button
+            onClick={onReportIssue}
+            title="Report an issue"
+            aria-label="Report an issue"
+            className="p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-raised transition-colors"
+          >
+            <LifeBuoy className="w-4 h-4" />
+          </button>
+        )}
 
         {/* User */}
         <div className="flex items-center gap-2.5 pl-2 sm:pl-3 border-l border-line">

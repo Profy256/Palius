@@ -20,6 +20,9 @@ services:
     environment:
       PORT: "8080"
       PALIUS_DB: /data/palius.db
+      # Guards /api/v1/admin/*. Generate with `openssl rand -base64 32`, put it
+      # in .env, then paste the same value into the admin panel when it asks.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       AI_PROVIDER: ${AI_PROVIDER:-auto}
       # OpenAI / OpenAI-compatible
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -43,6 +46,15 @@ services:
       # Ollama (local, OpenAI-compatible) — reach it via host.docker.internal
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      # Credential encryption. Required before anything — API keys or captured
+      # browser sessions — can be stored at all.
+      PALIUS_SECRET_KEY: ${PALIUS_SECRET_KEY:-}
+      # Level 3 browser login. The API reaches the worker over the compose
+      # network; the user's browser reaches it on the published host port, so
+      # the two URLs genuinely differ here.
+      PLAYWRIGHT_WORKER_URL: http://worker:8090
+      PLAYWRIGHT_WORKER_PUBLIC_URL: ${PLAYWRIGHT_WORKER_PUBLIC_URL:-http://localhost:8090}
+      PLAYWRIGHT_WORKER_TOKEN: ${WORKER_TOKEN:-local-dev-worker-token}
     ports:
       - "8080:8080"
     volumes:
@@ -52,6 +64,34 @@ services:
       interval: 30s
       timeout: 5s
       start_period: 10s
+      retries: 3
+
+  # Level 3 connectors — the embedded browser users log into platforms through.
+  # Runs a real Chromium, so it is by far the heaviest service here: budget
+  # ~1GB before concurrent logins, and note the shm_size below. Comment this
+  # service out and the rest of the stack still works; the connect dialog just
+  # reports browser login as unavailable instead of failing at it.
+  worker:
+    build:
+      context: ./apps/worker
+    restart: unless-stopped
+    environment:
+      PORT: "8090"
+      WORKER_TOKEN: ${WORKER_TOKEN:-local-dev-worker-token}
+      # The user's browser opens the frame stream directly, so the web app's
+      # origins have to be allowed here.
+      ALLOWED_ORIGINS: ${WORKER_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      WORKER_MAX_SESSIONS: ${WORKER_MAX_SESSIONS:-4}
+    ports:
+      - "8090:8090"
+    # Chromium's default 64MB /dev/shm is not enough and it will crash on a
+    # media-heavy login page without this.
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
       retries: 3
 
   frontend:

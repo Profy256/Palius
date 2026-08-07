@@ -44,6 +44,8 @@ import { DMLeadManagerView } from '@/components/DMLeadManagerView';
 import { AnalyticsView } from '@/components/AnalyticsView';
 import { AiHubView } from '@/components/AiHubView';
 import { SettingsView } from '@/components/SettingsView';
+import { askAdvisor, AdvisorChatTurn } from '@/lib/api';
+import { ReportIssueModal } from '@/components/ReportIssueModal';
 
 export default function Home() {
   const [currentProduct, setCurrentProduct] = useState<EcosystemProduct>('social-os');
@@ -71,6 +73,8 @@ export default function Home() {
   const [isScriptEditorOpen, setIsScriptEditorOpen] = useState(false);
   const [editingScript, setEditingScript] = useState<UnlistedPlatformScript | undefined>(undefined);
   const [isRepurposeOpen, setIsRepurposeOpen] = useState(false);
+  const [isReportIssueOpen, setIsReportIssueOpen] = useState(false);
+  const [isAdvisorThinking, setIsAdvisorThinking] = useState(false);
   const [repurposeTargetPost, setRepurposeTargetPost] = useState<CalendarPost | null>(null);
 
   // Handlers
@@ -159,45 +163,42 @@ export default function Home() {
     });
   };
 
-  // AI Chat Handler via Next.js API Route
+  // AI Chat Handler — goes to the Go backend, so it uses the one provider the
+  // rest of the platform uses and its token spend lands in the usage ledger.
   const handleSendMessage = async (text: string) => {
+    const stamp = () =>
+      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       sender: 'user',
       text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      timestamp: stamp()
     };
-
     setMessages(prev => [...prev, userMsg]);
 
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text })
-      });
-      const data = await response.json();
+    // Send the thread so the advisor can follow a conversation instead of
+    // answering every message cold.
+    const history: AdvisorChatTurn[] = messages.map(m => ({
+      sender: m.sender === 'ai' ? 'ai' : 'user',
+      text: m.text
+    }));
 
-      const aiReplyText = data.reply || "I analyzed your query. Focusing on high-contrast hooks will boost cross-platform virality by ~18.5%.";
+    setIsAdvisorThinking(true);
+    const res = await askAdvisor(text, history);
+    setIsAdvisorThinking(false);
 
-      const aiMsg: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        text: aiReplyText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
+    // A failure says so. Inventing a confident-sounding answer here is what
+    // made a dead integration look like a working feature for so long.
+    const reply = res?.reply
+      ?? "I couldn't reach the AI service just now. Check that the backend is running and has an AI provider configured, then try again.";
 
-      setMessages(prev => [...prev, aiMsg]);
-    } catch (err) {
-      console.error(err);
-      const fallbackAiMsg: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        text: "I analyzed your request. Based on current audience velocity, moving your primary reel publication window to 5:00 PM will yield the highest retention.",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages(prev => [...prev, fallbackAiMsg]);
-    }
+    setMessages(prev => [...prev, {
+      id: `ai-${Date.now()}`,
+      sender: 'ai',
+      text: reply,
+      timestamp: stamp()
+    }]);
   };
 
   const handleApproveLeadReply = (leadId: string) => {
@@ -259,6 +260,7 @@ export default function Home() {
             unreadDmsCount={leads.filter(l => l.status === 'NEW').length}
             onCreateContent={() => setIsComposeModalOpen(true)}
             onToggleSidebar={() => setIsSidebarOpen(v => !v)}
+            onReportIssue={() => setIsReportIssueOpen(true)}
           />
 
           {/* View Router */}
@@ -326,6 +328,7 @@ export default function Home() {
                 <AiHubView
                   messages={messages}
                   onSendMessage={handleSendMessage}
+                  isThinking={isAdvisorThinking}
                   artifacts={artifacts}
                   onGenerateArtifact={handleGenerateArtifact}
                 />
@@ -371,11 +374,31 @@ export default function Home() {
             onClose={() => setIsRepurposeOpen(false)}
             post={repurposeTargetPost}
           />
+
+          {/* The report carries whichever screen the user was on, so support
+              does not have to open with "where did this happen?". */}
+          <ReportIssueModal
+            isOpen={isReportIssueOpen}
+            onClose={() => setIsReportIssueOpen(false)}
+            currentPage={TAB_LABELS[currentTab]}
+          />
         </div>
       </div>
     </div>
   );
 }
+
+// Human-readable screen names, attached to any issue reported from them.
+const TAB_LABELS: Record<NavTab, string> = {
+  dashboard: 'Dashboard',
+  content: 'Content Calendar',
+  'social-hub': 'Social Hub',
+  engagement: 'Engagement Hub',
+  dms: 'DM Assistant',
+  analytics: 'Analytics',
+  'ai-hub': 'AI Hub',
+  settings: 'Settings',
+};
 
 // ---------------------------------------------------------------------------
 // The ecosystem bar switches between six CHAK products, but only Social Media

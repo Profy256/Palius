@@ -49,6 +49,7 @@ code.
 | Frontend hosting | **Vercel** | `apps/frontend` |
 | Admin hosting | **Vercel** | `apps/admin`, separate project |
 | API hosting | **Render** | `apps/backend`, Docker runtime |
+| Browser worker | **Render** | `apps/worker`, private service, `standard` plan — Chromium OOMs on `starter` |
 | Database | **Neon** | Serverless Postgres, branch-per-environment |
 | LLM APIs | Gemini / OpenAI / Anthropic / DeepSeek / OpenRouter / Ollama | Provider-agnostic |
 
@@ -58,7 +59,7 @@ See `DEPLOYMENT.md` for the full deploy procedure.
 
 ## 2. Repository Structure
 
-A plain monorepo. **No Turborepo** — three apps with independent build
+A plain monorepo. **No Turborepo** — four apps with independent build
 pipelines and no shared packages yet, so a build orchestrator would add
 configuration without saving anything.
 
@@ -73,27 +74,34 @@ chak-os/
 │   ├── admin/             # Next.js 15 — operator dashboard
 │   │   ├── components/    # AdminPanelView, EconomicsDashboard
 │   │   └── lib/api.ts
-│   └── backend/           # Go + Gin
-│       ├── main.go              # routing, CORS allowlist, admin auth
-│       ├── db.go                # SQLite/Postgres dialect layer
-│       ├── usage.go             # schema, seeding, legacy usage queries
-│       ├── models.go            # request/response types
-│       ├── handlers.go          # context, analyze, generate, viral, analytics
-│       ├── ai.go                # provider-agnostic LLM client
-│       ├── fallback.go          # deterministic data when no API key is set
-│       ├── scraper.go           # website context scraping
-│       ├── pricing.go           # rate card + cost engine
-│       ├── catalog.go           # image/video model catalog with quality scores
-│       ├── plans.go             # plan catalog + unit economics
-│       ├── metering.go          # credit ledger, reserve/commit/fail
-│       ├── billing.go           # customer-facing billing endpoints
-│       ├── admin.go             # legacy admin endpoints
-│       ├── admin_economics.go   # business monitoring endpoints
-│       ├── publishing.go        # built-in blog destination adapters
-│       ├── destinations.go      # user-defined destinations + Product Hunt
-│       ├── publishing_routes.go # publishing HTTP layer
-│       └── economics_test.go    # guard tests on the business model
-├── render.yaml            # Render blueprint for the backend
+│   ├── backend/           # Go + Gin
+│   │   ├── main.go              # routing, CORS allowlist, admin auth
+│   │   ├── db.go                # SQLite/Postgres dialect layer
+│   │   ├── usage.go             # schema, seeding, legacy usage queries
+│   │   ├── models.go            # request/response types
+│   │   ├── handlers.go          # context, analyze, generate, viral, analytics
+│   │   ├── ai.go                # provider-agnostic LLM client
+│   │   ├── fallback.go          # deterministic data when no API key is set
+│   │   ├── scraper.go           # website context scraping
+│   │   ├── pricing.go           # rate card + cost engine
+│   │   ├── catalog.go           # image/video model catalog with quality scores
+│   │   ├── plans.go             # plan catalog + unit economics
+│   │   ├── metering.go          # credit ledger, reserve/commit/fail
+│   │   ├── billing.go           # customer-facing billing endpoints
+│   │   ├── admin.go             # legacy admin endpoints
+│   │   ├── admin_economics.go   # business monitoring endpoints
+│   │   ├── publishing.go        # built-in blog destination adapters
+│   │   ├── destinations.go      # user-defined destinations + Product Hunt
+│   │   ├── publishing_routes.go # publishing HTTP layer
+│   │   ├── connections.go       # connection catalog, AES-256-GCM at rest
+│   │   ├── browser.go           # Level 3: login targets, worker client, sessions
+│   │   └── economics_test.go    # guard tests on the business model
+│   └── worker/            # Node + Playwright — the embedded browser
+│       ├── src/index.js         # HTTP + WebSocket server, ticket auth
+│       ├── src/sessions.js      # login sessions, screencast, input forwarding
+│       ├── src/browser.js       # Chromium lifecycle, isolated contexts
+│       └── src/publish.js       # session verification, compose-form driving
+├── render.yaml            # Render blueprint for backend + worker
 ├── DEPLOYMENT.md          # Vercel + Render + Neon procedure
 ├── PRD.md  architecture.md  srs.md  technical.md
 └── docker-compose.yml     # local full-stack via Docker
@@ -149,7 +157,21 @@ dispatch; commit prices the units the vendor actually reported.
 
 ### 3.5 Why Playwright (unchanged from v1.0)
 
-Stealth, modern async API, active maintenance. **Not yet implemented** — see §12.
+Modern async API, active maintenance, and a maintained container image that
+already carries Chromium's shared-library tail. Built — see §9.4.
+
+### 3.6 Why the browser worker is a separate service
+
+It runs a real Chromium, so it cannot share the API's host: a Render `starter`
+instance is 512MB and each login context wants ~150–250MB on top of the browser
+itself. Splitting it also draws a useful line — the worker holds no database and
+no encryption key, so it can be restarted or scaled without anything but
+in-flight logins being lost, and a compromise of it yields no stored session.
+
+The frame stream is the one thing the user's browser opens directly against the
+worker. Proxying it through Go would double the bandwidth and buy nothing, so
+instead the API mints a single-use ticket scoped to one session and the worker's
+shared token stays server-side.
 
 ---
 
@@ -443,12 +465,86 @@ The built-in list is **not** the boundary. Three escape hatches:
    No code, no deploy.
 2. **Browser session** — no API? Log in through the embedded browser; the
    encrypted session plus CSS selectors drive the compose form. This is the
-   Level 3 connector model applied to blogs. Requires the Playwright worker.
+   Level 3 connector model applied to blogs. Requires the Playwright worker
+   (`apps/worker`); without it the destination falls back to export rather than
+   failing.
 3. **Export** — nothing works, so return a formatted draft rather than lose the
    writing. This is also what every unconfigured built-in adapter does.
 
 Definitions live in `custom_destinations` and are read per request, so a new
 destination is live immediately.
+
+### 9.4 Level 3 — signing in through the embedded browser
+
+The reason this exists: getting an official API approved for TikTok, Instagram
+or X is a review process measured in weeks, and several platforms will not grant
+write access to a small product at all. Level 3 needs no developer account and
+no approval — the user signs in on the platform's own login page and we keep the
+resulting session.
+
+The flow, all of it user-driven:
+
+1. `POST /browser/sessions` → the API checks a key exists and a worker is
+   answering, mints a stream ticket, and asks the worker to open the platform's
+   login (or **sign-up** — connecting an account that does not exist yet is the
+   same flow against a different URL).
+2. The worker opens an isolated `BrowserContext` and streams it over CDP
+   `Page.startScreencast`. The user's browser opens that socket directly.
+3. The user types. Keystrokes are dispatched into a page on the platform's own
+   domain; **nothing reads an input's value**, and nothing should be added that
+   does. Printable characters go in as text rather than key codes, which would
+   assume a US layout and mangle a password typed on AZERTY or Cyrillic.
+4. `POST /browser/sessions/:id/complete` when the user says they are through —
+   including 2FA, which is exactly why this is a button and not a detector.
+5. The API verifies before it stores. If the check fails, **nothing is written**
+   and the window stays open so the user can finish.
+
+Verification is the part worth getting right. `browserTargets` in `browser.go`
+points each platform at a page it only serves to a signed-in user — a settings
+or account page, never a homepage or feed — and the check is whether the
+platform *kept us there*. "The page loaded and did not look like a login form"
+passes with no session at all, because almost every platform serves its
+homepage to anonymous visitors; that version of the check reported an untouched
+login as `verified`.
+
+Honest limits, repeated in the UI: a stored session is not an API grant. It
+expires on the platform's schedule and a password change kills it, which is why
+`/connections/:id/verify` re-checks rather than showing a permanent badge. And
+`srs.md` §2.5 notes some platforms' terms discourage automated access — Levels 1
+and 2 remain the better option wherever an API is actually obtainable.
+
+### 9.5 Level 3 for blogs — publishing through the editor
+
+Blogs get browser login for a sharper reason than social does: for half of them
+the API is not merely slower to obtain, it does not exist.
+
+| Destination | Why browser login matters |
+|---|---|
+| **Substack** | No public write API at all. A browser session is the *only* way Palius can post. |
+| **Medium** | Has not issued a new integration token in years. For any recent account the API is effectively closed — so the browser option is listed first. |
+| **dev.to** | API works, but means digging a key out of a settings page. Signing in is shorter. |
+| **Hashnode** | Same, plus it needs a publication id the user has to go and find. |
+| **Product Hunt** | Login only. Launches are submitted by hand — there is no create endpoint and no compose form we drive, and the UI says so rather than implying a posting route. |
+
+`composeMappings` in `browser.go` holds a compose URL and CSS selectors per
+platform. `PublishBlog` tries the API adapter first and only falls through when
+the result is `export` — which is precisely "no credential configured", or for
+Substack "no API exists". So a token, where the user has one, always wins.
+
+Two properties of that mapping are deliberate:
+
+- **Failure returns the draft.** Every error path in
+  `publishViaBrowserConnection` hands back `ExportBody`. These selectors
+  describe third-party markup that changes without warning, and losing
+  somebody's writing because a CSS class was renamed is not an acceptable
+  outcome.
+- **Selectors are defaults, not a contract.** They are written as multi-selectors
+  (`a, b`) so one renamed test id does not take the mapping down, and a
+  user-defined destination (§9.3) can override all of it with no deploy.
+
+`OwnerID` on `BlogPublishRequest` is `json:"-"` and set by the handler from the
+request context. Reading it from the body would let a caller publish using
+someone else's stored session.
 
 ---
 
@@ -525,6 +621,22 @@ POST /publish/producthunt-kit
 GET  /destinations/custom       POST /destinations/custom
 ```
 
+**Connections & Level 3 browser login**
+```
+GET    /connections/catalog       GET    /connections
+POST   /connections               POST   /connections/:id/verify
+DELETE /connections/:id
+GET    /browser/status            POST   /browser/sessions
+GET    /browser/sessions/:sid     POST   /browser/sessions/:sid/complete
+DELETE /browser/sessions/:sid
+```
+
+`/browser/*` is a separate prefix from `/connections/:id` on purpose —
+otherwise `browser` is indistinguishable from a connection id. `POST
+/connections` refuses `level-3` outright: a browser session has no credentials
+to submit, so accepting an empty form there would store a connection with
+nothing behind it.
+
 **Admin** — all require `Authorization: Bearer $ADMIN_TOKEN`
 ```
 GET  /admin/business            GET  /admin/models
@@ -550,6 +662,11 @@ GET  /admin/providers
   `Allow-Credentials: true` is equivalent to no CORS policy at all.
 - **TLS to Neon** forced via `sslmode=require`.
 - **Security headers** on both Vercel apps; admin is `noindex`.
+- **Browser sessions** (Level 3) are sealed with the same AES-256-GCM envelope
+  as API keys. The worker holds no key and no database. Its private API takes a
+  bearer token that never reaches a browser; the frame stream is authorised
+  instead by a single-use ticket scoped to one session, and a session can only
+  be captured by the user who started it.
 
 ### NOT built — required before public launch
 
@@ -558,7 +675,6 @@ GET  /admin/providers
   email/password, JWT, MFA, and RBAC; none exists.
 - **Multi-tenancy.** No `organizations`/`org_members`, no roles, no seat
   enforcement — despite plans selling 3/10/50 seats.
-- **AES-256-GCM session encryption** for browser cookies.
 - Rate limiting, audit log, secret rotation.
 
 ---
@@ -569,7 +685,6 @@ Specified in `architecture.md` / `srs.md`, absent from the code:
 
 | Component | Impact |
 |---|---|
-| Playwright browser engine, session capture, WebSocket streaming | Level 3 connectors are UI-only |
 | Redis + job queue | No scheduled publishing; the calendar is display-only |
 | Media object storage (S3/R2/Cloudinary) | Generated video has nowhere to live |
 | pgvector brand embeddings | Brand learning is prompt-only |
