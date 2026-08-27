@@ -1,0 +1,116 @@
+{
+  "name": "palius-os-desktop",
+  "version": "1.0.0",
+  "description": "Palius / CHAK — AI social media CRM, desktop app",
+  "author": "Palius <profy256@gmail.com>",
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/Profy256/Palius",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Profy256/Palius.git"
+  },
+  "private": true,
+  "main": "electron.js",
+  "scripts": {
+    "build:frontend": "cd ../frontend && cross-env DESKTOP_BUILD=1 npm run build",
+    "dev": "electron .",
+    "dev:attach": "cross-env ELECTRON_START_URL=http://localhost:3000 electron .",
+    "pack": "npm run build:frontend && electron-builder --dir",
+    "dist": "npm run build:frontend && electron-builder",
+    "dist:linux": "npm run build:frontend && electron-builder --linux",
+    "dist:mac": "npm run build:frontend && electron-builder --mac",
+    "dist:win": "npm run build:frontend && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.palius.os.desktop",
+    "productName": "Palius",
+    "copyright": "Copyright © 2026 Palius",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../frontend/.next/standalone",
+        "to": "frontend"
+      },
+      {
+        "from": "../frontend/.next/static",
+        "to": "frontend/.next/static"
+      },
+      {
+        "from": "../frontend/public",
+        "to": "frontend/public"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office",
+      "icon": "build/icons",
+      "executableName": "palius",
+      "synopsis": "AI social media CRM",
+      "description": "Plan, publish, engage and analyse social media across every platform, with a bring-your-own-key AI assistant.",
+      "desktop": {
+        "Name": "Palius",
+        "GenericName": "Social Media CRM",
+        "Comment": "AI social media CRM — plan, publish, engage and analyse",
+        "Categories": "Office;",
+        "Keywords": "social;media;crm;marketing;ai;scheduler;palius;",
+        "StartupWMClass": "Palius"
+      }
+    },
+    "deb": {
+      "priority": "optional"
+    },
+    "appImage": {
+      "license": null
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Palius"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.business",
+      "icon": "build/icon.png"
+    },
+    "dmg": {
+      "title": "Palius ${version}"
+    }
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}

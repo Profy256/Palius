@@ -7,24 +7,32 @@
    selection, focus rings) can reach the same palette the components use.
    --------------------------------------------------------------------------- */
 :root {
-  --ink: #0b0b0f;
-  --well: #101015;
-  --surface: #141419;
-  --panel: #17171d;
-  --card: #1d1d25;
-  --raised: #26262f;
+  --ink: #08080b;
+  --well: #0e0e13;
+  --surface: #101017;
+  --panel: #15151d;
+  --card: #1b1b24;
+  --raised: #262633;
 
-  --line: #26262f;
-  --line-strong: #34343f;
+  --line: #262633;
+  --line-strong: #393947;
 
-  --fg: #e8e8ef;
+  --fg: #ECECF2;
+  --fg-muted: #9b9bad;
   --brand: #f59e0b;
+  --accent: #6366f1;
 
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont,
     'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
 }
 
+html,
 body {
+  height: 100%;
+}
+
+body {
+  /* Flat canvas — no ambient gradient wash. */
   background-color: var(--ink);
   color: var(--fg);
   font-family: var(--font-sans);
@@ -38,9 +46,9 @@ body {
    treatment; this keeps keyboard users from losing their place entirely.
    --------------------------------------------------------------------------- */
 :focus-visible {
-  outline: 2px solid var(--brand);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 /* Pointer users don't need the ring on top of the hover/active styling. */
@@ -52,29 +60,43 @@ body {
    Scrollbars
    --------------------------------------------------------------------------- */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
   background: var(--raised);
   border-radius: 9999px;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
   background-clip: content-box;
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background: var(--line-strong);
   background-clip: content-box;
 }
-
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--raised) transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   Tiny helpers used by the chrome and cards. Keep component markup lean.
+   --------------------------------------------------------------------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
 }
 
 /* ---------------------------------------------------------------------------

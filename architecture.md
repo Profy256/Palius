@@ -41,7 +41,7 @@ Each cycle iteration makes the AI smarter and marketing more effective.
 | Admin panel | **Vercel** (separate project) | Built | Isolated bundle so it can be locked down independently |
 | Backend (API) | **Render** (Docker) | Built | Managed containers, auto-deploy from Git, long-lived processes |
 | Database | **Neon** (serverless Postgres) | Built | Branch-per-environment; preview deploys get their own data |
-| Browser Engine | **Render** private service | *Not built* | Needs real Chromium — cannot run on Vercel or a `starter` instance |
+| Browser Engine | **Render** private service *(optional)* | *Not built* | Needs real Chromium — cannot run on Vercel or a `starter` instance. Sessions live in Postgres, so a locally-run worker can capture them instead (`DEPLOYMENT.md` §2b) |
 | Job queue | **Redis** (Render Key Value / Upstash) | *Not built* | Required before scheduled publishing works |
 | Media storage | **S3 / R2 / Cloudinary** | *Not built* | Generated video needs a home before that feature ships |
 

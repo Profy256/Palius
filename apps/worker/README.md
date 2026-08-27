@@ -14,6 +14,12 @@ the Go API keeps its small footprint and the worker can be scaled or restarted
 independently — it holds no database and no encryption key, so restarting it
 loses nothing but in-flight logins.
 
+That last property has a useful consequence: because the worker keeps nothing,
+**it only has to exist at the moment of capture.** A worker on a laptop can
+connect an account for a deployed API, as long as both talk to the same database
+and share `PALIUS_SECRET_KEY` — which is how Level 3 works without paying to
+host this service. See §2b of [DEPLOYMENT.md](../../DEPLOYMENT.md).
+
 ## The security shape
 
 | | |
@@ -90,6 +96,22 @@ PALIUS_SECRET_KEY=<openssl rand -base64 48>
 ```
 
 Set `WORKER_HEADLESS=false` to watch a real window while debugging.
+
+### The Playwright version is pinned on purpose
+
+`Dockerfile` builds `FROM mcr.microsoft.com/playwright:vX.Y.Z-noble`, and that
+image ships the browsers for **exactly** that version. The `playwright`
+dependency is therefore pinned to an exact version rather than a caret range —
+let the lockfile drift ahead of the image and `npm ci` installs a client whose
+browsers are not in the image:
+
+```
+browserType.launch: Executable doesn't exist at /ms-playwright/chromium_headless_shell-…
+```
+
+That surfaces as `chromium: false` on `/health` and a greyed-out browser login
+in the connect dialog, which is a long way from pointing at the real cause. When
+upgrading, change both the `FROM` tag and the pinned version together.
 
 ## Limits worth stating plainly
 

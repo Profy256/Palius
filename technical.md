@@ -49,7 +49,7 @@ code.
 | Frontend hosting | **Vercel** | `apps/frontend` |
 | Admin hosting | **Vercel** | `apps/admin`, separate project |
 | API hosting | **Render** | `apps/backend`, Docker runtime |
-| Browser worker | **Render** | `apps/worker`, private service, `standard` plan — Chromium OOMs on `starter` |
+| Browser worker | **Render** *(optional)* | `apps/worker`, private service, `standard` plan — Chromium OOMs on `starter`. Skippable: run it locally against the prod DB instead (`DEPLOYMENT.md` §2b) |
 | Database | **Neon** | Serverless Postgres, branch-per-environment |
 | LLM APIs | Gemini / OpenAI / Anthropic / DeepSeek / OpenRouter / Ollama | Provider-agnostic |
 
@@ -172,6 +172,13 @@ The frame stream is the one thing the user's browser opens directly against the
 worker. Proxying it through Go would double the bandwidth and buy nothing, so
 instead the API mints a single-use ticket scoped to one session and the worker's
 shared token stays server-side.
+
+**The worker holding no state has a deployment consequence.** Captured sessions
+live in Postgres, so the worker is only needed at the moment of capture — not to
+use a connection afterwards. A single-operator deployment can therefore run the
+worker locally against the production database and skip hosting it entirely; see
+§2b of `DEPLOYMENT.md`. Hosting it (§2a) is what a deployment needs when *end
+users* connect their own accounts on demand.
 
 ---
 

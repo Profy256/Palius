@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { CalendarPost } from '@/lib/types';
+import { getProviderConfig } from '@/lib/userConfig';
+import { KeyRound, AlertTriangle } from 'lucide-react';
 import { 
   X, 
   Repeat, 
@@ -22,27 +24,45 @@ interface AiRepurposeModalProps {
 export function AiRepurposeModal({ isOpen, onClose, post }: AiRepurposeModalProps) {
   const [repurposedOutputs, setRepurposedOutputs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [needsKey, setNeedsKey] = useState(false);
+  const [usingLive, setUsingLive] = useState(false);
 
   if (!isOpen || !post) return null;
 
   const handleRunRepurpose = async () => {
     setIsLoading(true);
+    setError(null);
     try {
+      const cfg = await getProviderConfig();
+      if (!cfg?.apiKey) {
+        setNeedsKey(true);
+        return;
+      }
       const res = await fetch('/api/repurpose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: post.title,
           originalCaption: post.caption,
-          originalPlatform: post.platform
-        })
+          originalPlatform: post.platform,
+          provider: cfg.provider,
+          apiKey: cfg.apiKey,
+          model: cfg.model,
+          baseUrl: cfg.baseUrl,
+        }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to repurpose content');
+        return;
+      }
+      setUsingLive(!!data.live);
       if (data.outputs) {
         setRepurposedOutputs(data.outputs);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setError(e?.message || 'Something went wrong');
     } finally {
       setIsLoading(false);
     }
@@ -78,12 +98,37 @@ export function AiRepurposeModal({ isOpen, onClose, post }: AiRepurposeModalProp
             <button
               onClick={handleRunRepurpose}
               disabled={isLoading}
-              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs flex items-center gap-2 transition-all shadow-lg"
+              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs flex items-center gap-2 transition-all shadow-lg disabled:opacity-60"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>{isLoading ? 'Repurposing Content...' : 'Run AI Repurpose'}</span>
             </button>
           </div>
+
+          {error && (
+            <div className="flex items-center gap-2 text-xs px-4 py-3 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300">
+              <AlertTriangle className="w-4 h-4" /> {error}
+            </div>
+          )}
+
+          {needsKey && (
+            <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 text-xs space-y-2">
+              <div className="flex items-center gap-2 font-semibold">
+                <KeyRound className="w-4 h-4" /> Add your AI provider key
+              </div>
+              <p className="text-amber-100/90">
+                No provider key is configured. Open <strong>Settings → Bring Your Own AI Provider</strong>,
+                pick a provider (Gemini, OpenRouter, OpenAI, Anthropic or any OpenAI-compatible endpoint),
+                paste your key, and save. Then run repurpose again.
+              </p>
+            </div>
+          )}
+
+          {usingLive && repurposedOutputs.length > 0 && (
+            <div className="text-[10px] text-emerald-400 font-mono uppercase tracking-wide">
+              Generated live via your configured provider
+            </div>
+          )}
 
           {/* Repurposed Formats List */}
           {repurposedOutputs.length > 0 && (

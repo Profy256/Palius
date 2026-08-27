@@ -12,6 +12,7 @@ import {
   Sliders
 } from 'lucide-react';
 import { SupportSection } from '@/components/SupportSection';
+import { ProviderSettings } from '@/components/ProviderSettings';
 
 export function SettingsView() {
   const [toneStyle, setToneStyle] = useState('Executive & Authoritative');
@@ -29,6 +30,10 @@ export function SettingsView() {
           Configure AI brand voice learning rules and inspect AES-256-GCM browser session encryption status.
         </p>
       </div>
+
+      {/* The API key is the one setting a new user must fill in before any AI
+          feature works, so it leads the page instead of sitting below the fold. */}
+      <ProviderSettings />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Brand Learning Engine */}
