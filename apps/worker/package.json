@@ -15,7 +15,7 @@
     "check": "node --check src/index.js && node --check src/sessions.js && node --check src/publish.js && node --check src/browser.js"
   },
   "dependencies": {
-    "playwright": "^1.50.0",
+    "playwright": "1.50.0",
     "ws": "^8.18.0"
   }
 }

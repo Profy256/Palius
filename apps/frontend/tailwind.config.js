@@ -11,24 +11,25 @@ module.exports = {
       colors: {
         // ---------------------------------------------------------- surfaces
         // One elevation ladder for the whole product. Never hardcode a hex in
-        // a component — pick the rung that matches the depth.
-        ink: '#0b0b0f',       // app canvas (deepest)
-        well: '#101015',      // inputs, insets, code wells
-        surface: '#141419',   // chrome: sidebar, topbar, modal header/footer
-        panel: '#17171d',     // primary panels sitting on the canvas
-        card: '#1d1d25',      // cards nested inside a panel
-        raised: '#26262f',    // hover / pressed / chip backgrounds
+        // a component — pick the rung that matches the depth. Tuned for a
+        // higher-contrast, premium "web app" feel.
+        ink: '#08080b',       // app canvas (deepest)
+        well: '#0e0e13',      // inputs, insets, code wells
+        surface: '#101017',   // chrome: sidebar, topbar, modal header/footer
+        panel: '#15151d',     // primary panels sitting on the canvas
+        card: '#1b1b24',      // cards nested inside a panel
+        raised: '#262633',    // hover / pressed / chip backgrounds
 
         // ------------------------------------------------------------ lines
-        line: '#26262f',
-        'line-strong': '#34343f',
+        line: '#262633',
+        'line-strong': '#393947',
 
         // ------------------------------------------------------------- text
-        fg: '#e8e8ef',
+        fg: '#ECECF2',
+        'fg-muted': '#9b9bad',
 
         // ------------------------------------------------------------ brand
-        // Single accent for the product. Amber reads as "premium gold" on the
-        // dark canvas and clears 10:1 against ink for button labels.
+        // Amber remains the product accent (premium gold on the dark canvas).
         brand: {
           50: '#fffbeb',
           100: '#fef3c7',
@@ -42,10 +43,36 @@ module.exports = {
           900: '#78350f',
           950: '#451a03',
         },
+
+        // Secondary accent — indigo/violet — used for AI + interactive moments
+        // so the product reads as a modern SaaS CRM, not a single-hue demo.
+        accent: {
+          50: '#eef2ff',
+          100: '#e0e7ff',
+          200: '#c7d2fe',
+          300: '#a5b4fc',
+          400: '#818cf8',
+          500: '#6366f1',
+          600: '#4f46e5',
+          700: '#4338ca',
+          800: '#3730a3',
+          900: '#312e81',
+        },
       },
       fontFamily: {
         sans: ['var(--font-sans)', 'Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
+      boxShadow: {
+        // Soft, layered elevation used on panels and cards.
+        card: '0 1px 0 0 rgba(255,255,255,0.03) inset, 0 8px 24px -12px rgba(0,0,0,0.6)',
+        'card-hover': '0 1px 0 0 rgba(255,255,255,0.05) inset, 0 16px 40px -16px rgba(0,0,0,0.7)',
+        glow: '0 0 0 1px rgba(245,158,11,0.25), 0 12px 32px -12px rgba(245,158,11,0.35)',
+        'glow-accent': '0 0 0 1px rgba(99,102,241,0.25), 0 12px 32px -12px rgba(99,102,241,0.4)',
+      },
+      borderRadius: {
+        '2xl': '1rem',
+        '3xl': '1.5rem',
       },
       keyframes: {
         'slide-in': {
@@ -60,10 +87,11 @@ module.exports = {
           from: { transform: 'scale(0.97)', opacity: '0' },
           to: { transform: 'scale(1)', opacity: '1' },
         },
+        shimmer: {
+          '100%': { transform: 'translateX(100%)' },
+        },
       },
       animation: {
-        // `animate-slide-in` was referenced by the analyzer drawer but never
-        // existed, so the drawer just popped. These back it properly.
         'slide-in': 'slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1)',
         'fade-in': 'fade-in 160ms ease-out',
         'scale-in': 'scale-in 180ms cubic-bezier(0.16, 1, 0.3, 1)',

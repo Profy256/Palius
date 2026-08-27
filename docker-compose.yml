@@ -19,6 +19,12 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8080"
+      # When DATABASE_URL is set the backend uses Neon/Postgres and ignores
+      # PALIUS_DB (see db.go: openDatabase). That is what lets a local run write
+      # a captured browser session into the SAME database the deployed API reads
+      # from — the worker only has to exist at capture time, not afterwards.
+      # Leave it empty to fall back to the local SQLite file below.
+      DATABASE_URL: ${DATABASE_URL:-}
       PALIUS_DB: /data/palius.db
       # Guards /api/v1/admin/*. Generate with `openssl rand -base64 32`, put it
       # in .env, then paste the same value into the admin panel when it asks.

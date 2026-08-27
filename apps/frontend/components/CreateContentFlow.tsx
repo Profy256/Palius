@@ -1126,7 +1126,7 @@ export function CreateContentFlow({ isOpen, onClose, onAddPost }: CreateContentF
                     without one, and the AI will not pick one for you. */}
                 {generated.blog.requiresImage && (
                   <div className="mt-3 rounded-xl bg-card border border-line p-2.5 flex items-center gap-3">
-                    <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 flex items-center justify-center bg-gradient-to-br from-brand-500/30 to-brand-600/30 border border-brand-500/30">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 flex items-center justify-center bg-brand-500/20 border border-brand-500/30">
                       {blogCover ? (
                         <img src={blogCover} alt="Blog cover" className="w-full h-full object-cover" />
                       ) : (

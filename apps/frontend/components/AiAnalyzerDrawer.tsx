@@ -54,7 +54,7 @@ export function AiAnalyzerDrawer({
       {/* Drawer Body */}
       <div className="flex-1 p-5 overflow-y-auto space-y-5">
         {/* Score Gauge Card */}
-        <div className="p-4 rounded-xl bg-gradient-to-r from-brand-950/30 to-card border border-brand-500/30 space-y-2 text-center">
+        <div className="p-4 rounded-xl bg-card border border-brand-500/30 space-y-2 text-center">
           <span className="text-[10px] uppercase font-mono tracking-wider text-brand-400 font-bold">
             Optimization Score
           </span>
@@ -122,7 +122,7 @@ export function AiAnalyzerDrawer({
         {onOpenRepurpose && (
           <button
             onClick={() => onOpenRepurpose(post)}
-            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+            className="w-full py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
           >
             <Repeat className="w-4 h-4" />
             <span>Repurpose into Shorts, Reels & X Thread</span>

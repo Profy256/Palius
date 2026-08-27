@@ -79,6 +79,11 @@ approval. The blueprint creates it automatically; two things need attention.
 Chromium plus a login context wants ~1GB. A `starter` instance (512MB) will OOM
 partway through a login, which is the worst possible time to fail.
 
+> **You may not need this service at all.** Because captured sessions live in
+> the database rather than in the worker, a worker running on your own laptop
+> can write a session that the deployed API then uses forever. See §2b — it
+> costs nothing and is the right answer for a single-operator deployment.
+
 **Two URLs, because two different clients talk to it.**
 
 | Variable | Set on | Points at | Why |
@@ -107,6 +112,56 @@ curl -s -H "X-User-Id: user-1" $API/browser/status
 `encryptionAvailable: false` means `PALIUS_SECRET_KEY` is unset — the server
 will refuse to start a login rather than ask someone for a password it cannot
 then store safely.
+
+---
+
+## 2b. Browser login without hosting a worker
+
+Hosting the worker costs money it does not have to. The Level 3 design already
+separates capture from use:
+
+- The worker captures a session and hands it straight back to the API.
+- The API seals it and writes it to **Postgres** (`browser.go`); the worker
+  keeps nothing.
+- Every later use — publishing, verification — reads it back out of the
+  database.
+
+So the worker only has to exist **at the moment of capture**. Run it on your own
+machine, which already has far more than the 1GB Chromium wants, and point the
+local stack at the *production* database: `db.go` selects Neon whenever
+`DATABASE_URL` is set. The session lands in the same database the deployed API
+reads from.
+
+```bash
+# repo root .env — DATABASE_URL is the Neon POOLED string,
+# PALIUS_SECRET_KEY must be byte-identical to the deployed service's value.
+docker compose up -d
+
+# localhost:3000 -> Connect -> sign in through the embedded browser
+
+docker compose down          # production now has the session
+```
+
+Repeat whenever a platform expires the session. In this arrangement production
+reporting `browserWorkerRunning: false` is the **designed steady state**, not a
+fault — the connect dialog simply offers browser login on localhost instead.
+
+**What has to line up:**
+
+| | Why |
+|---|---|
+| `PALIUS_SECRET_KEY` identical in both places | `connections.go` SHA-256s the string to derive the AES key. Any difference and the deployed API gets ciphertext it cannot open. |
+| Owner ids identical | Connections are stored per user. The frontend falls back to `user-1` unless `NEXT_PUBLIC_PALIUS_USER_ID` is set, so leave it unset in both places or set it in both. |
+| `DATABASE_URL` set locally | Otherwise the stack writes to the local SQLite file and production never sees the session. |
+
+**This is a single-operator pattern.** It works because one person connects
+their own accounts occasionally. A deployment where end users connect their own
+accounts on demand needs the hosted worker in §2a.
+
+> **The Go backend does not read `.env` files** — there is no `godotenv`
+> dependency. `go run .` on its own starts with *zero* configuration, which
+> looks exactly like the "`PALIUS_SECRET_KEY` is not set" failure. Config
+> reaches it only via docker-compose or an exported shell environment.
 
 ---
 
@@ -232,3 +287,43 @@ change.
   instance (Render Key Value or Upstash).
 - **Object storage** for generated media. Add S3/R2 before shipping video
   generation, or you will be re-fetching from the provider on every view.
+
+---
+
+## 8. Troubleshooting the local stack
+
+Both of these present as something other than their cause.
+
+**Every container fails DNS.** Symptom: the backend loops on
+`ping postgres: hostname resolving error … connection refused`, and Chromium
+cannot reach a login page either. On hosts running `systemd-resolved`,
+`/etc/resolv.conf` points at the `127.0.0.53` stub, which does not exist inside
+a container's network namespace. Fix with a gitignored
+`docker-compose.override.yml`:
+
+```yaml
+services:
+  backend:
+    dns: [8.8.8.8, 1.1.1.1]
+  worker:
+    dns: [8.8.8.8, 1.1.1.1]
+```
+
+**`chromium: false` on the worker's `/health`.** The connect dialog reports
+"the browser worker is up but Chromium failed to launch". This is almost always
+a version mismatch: `apps/worker/Dockerfile` pins a
+`mcr.microsoft.com/playwright:vX.Y.Z-noble` base image that ships **only that
+version's** browsers, so if the lockfile has drifted to a newer Playwright,
+`npm ci` installs a client whose browsers are absent:
+
+```
+Executable doesn't exist at /ms-playwright/chromium_headless_shell-…
+```
+
+Keep the two in lockstep — either bump the base image tag or pin `playwright`
+to the exact version the image ships. Check before anything else:
+
+```bash
+grep '"playwright"' apps/worker/package.json
+grep '^FROM' apps/worker/Dockerfile
+```

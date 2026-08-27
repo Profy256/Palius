@@ -133,7 +133,7 @@ export function Sidebar({
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto" aria-label="Primary">
-          <div className="px-3 py-2 text-[10px] font-bold text-zinc-400 uppercase tracking-widest select-none">
+          <div className="px-3 py-2 text-[10px] font-bold text-fg-muted uppercase tracking-widest select-none">
             Core Operations
           </div>
           {navItems.map(item => {
@@ -143,14 +143,17 @@ export function Sidebar({
                 key={item.id}
                 onClick={() => onSelectTab(item.id)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
+                className={`group w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all relative ${
                   isActive
-                    ? 'bg-brand-500/10 text-brand-300 border border-brand-500/30'
+                    ? 'bg-brand-500/10 text-brand-200 border border-brand-500/30 shadow-card'
                     : 'text-zinc-300 hover:text-white hover:bg-raised border border-transparent'
                 }`}
               >
+                {isActive && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-brand-500" />
+                )}
                 <span className="flex items-center gap-3 min-w-0">
-                  <span className={isActive ? 'text-brand-400' : 'text-zinc-400'}>{item.icon}</span>
+                   <span className={isActive ? 'text-brand-400' : 'text-zinc-400'}>{item.icon}</span>
                   <span className="truncate">{item.label}</span>
                 </span>
                 {item.badge ? (

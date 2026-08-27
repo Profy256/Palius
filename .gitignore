@@ -1,5 +1,8 @@
 node_modules/
 build/
+# ...but the Electron build resources (app icons) are source, not output —
+# without them nobody who clones this repo can package the desktop app.
+!apps/desktop/build/
 dist/
 coverage/
 .DS_Store
@@ -23,3 +26,9 @@ apps/backend/*.exe
 
 # Vercel
 .vercel
+
+# Local-only compose overrides (machine-specific DNS, ports, etc.)
+docker-compose.override.yml
+
+# Internal business doc — pricing and unit economics, not for the public repo
+BILLING.md
