@@ -96,9 +96,34 @@ function readJson(req, limitBytes = 8 * 1024 * 1024) {
   });
 }
 
+/**
+ * The desktop app serves its UI from a loopback port the OS hands out at
+ * launch — apps/desktop/electron.js asks for port 0 so two copies cannot
+ * collide — so its origin carries a different number every run and no static
+ * allowlist can name it ahead of time. Loopback is trusted on its own terms
+ * instead: such a page can only be served by software already running on the
+ * user's machine, and the stream socket still has to present a live session id
+ * and its single-use ticket.
+ *
+ * Without this the upgrade is rejected with a 403 before the socket opens, so
+ * the login window never paints and no error reaches the user — it reads as
+ * "signing in to this platform is broken", identically on every platform.
+ */
+function isLoopbackOrigin(origin) {
+  try {
+    const { protocol, hostname } = new URL(origin);
+    if (protocol !== 'http:' && protocol !== 'https:') return false;
+    // URL normalises an IPv6 host to bracketed form; accept both spellings.
+    return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname);
+  } catch {
+    return false; // not a parseable origin (including the literal "null")
+  }
+}
+
 function originAllowed(origin) {
   if (!ALLOWED_ORIGINS.length) return true; // development
-  return !!origin && ALLOWED_ORIGINS.includes(origin);
+  if (!origin) return false;
+  return ALLOWED_ORIGINS.includes(origin) || isLoopbackOrigin(origin);
 }
 
 // -- HTTP -------------------------------------------------------------------

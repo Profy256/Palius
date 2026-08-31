@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AuthLevel } from '@/lib/types';
 import { BrandIcon } from '@/lib/brandIcons';
 import {
@@ -76,6 +76,16 @@ export function PlatformConnectionModal({
   const [browserSession, setBrowserSession] = useState<BrowserSession | null>(null);
   const [browserSignedIn, setBrowserSignedIn] = useState(false);
   const [savingSession, setSavingSession] = useState(false);
+
+  // A successful save ends with the API closing the worker session, so the
+  // stream socket reports "closed" as a normal part of saving — and it usually
+  // arrives before the save's own HTTP response, because the worker pushes it
+  // the moment it is told to close while the API is still finishing up. Without
+  // this flag the close handler below reads that as an abandoned login and
+  // reports failure over a save that actually succeeded. A ref, not state:
+  // the handler is reached through a captured callback and has to see the
+  // current value, not the one from the render that registered it.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen || catalog) return;
@@ -159,6 +169,7 @@ export function PlatformConnectionModal({
   const handleBrowserLogin = async (mode: BrowserMode) => {
     setError('');
     setBrowserSignedIn(false);
+    savingRef.current = false;
     setStep('connecting');
 
     const res = await startBrowserSession(selectedPlatform, mode);
@@ -174,6 +185,7 @@ export function PlatformConnectionModal({
 
   const saveBrowserSession = async () => {
     if (!browserSession) return;
+    savingRef.current = true;
     setSavingSession(true);
     setError('');
 
@@ -181,7 +193,10 @@ export function PlatformConnectionModal({
     setSavingSession(false);
     if (!res.ok) {
       // Stay on the browser view: the usual cause is saving before the login
-      // finished, and the user can simply carry on in the same window.
+      // finished, and the user can simply carry on in the same window. The API
+      // deliberately leaves the session open in that case, so a close from here
+      // on is a real one and should be reported again.
+      savingRef.current = false;
       setError(res.error);
       return;
     }
@@ -198,6 +213,8 @@ export function PlatformConnectionModal({
 
   const abandonBrowserSession = () => {
     if (browserSession) cancelBrowserSession(browserSession.sessionId);
+    // Cancelling closes the session too, and that close is equally expected.
+    savingRef.current = true;
     setBrowserSession(null);
     setBrowserSignedIn(false);
     setError('');
@@ -255,13 +272,22 @@ export function PlatformConnectionModal({
   const fields = method?.fields ?? [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in overflow-y-auto">
-      {/* Capped to the viewport so the body scrolls instead of the dialog
-          overflowing off-screen and taking its action button with it. The
-          browser step needs far more room — a login page squeezed into 32rem
-          is unusable. */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm animate-fade-in overflow-hidden">
+      {/* Height is taken from the backdrop rather than a vh fraction. The
+          backdrop is inset-0, so max-h-full resolves to exactly the space left
+          after its padding — whatever the screen or window happens to be. A
+          fixed 90vh looks equivalent but is not: it leaves the last tenth of
+          the viewport unusable on a short panel, which is enough to push the
+          pinned footer's action button under the screen edge.
+
+          overflow-hidden here on purpose. The body below is the one scrolling
+          region; letting the backdrop scroll too lets the whole dialog drift
+          under the viewport, taking the footer with it.
+
+          The browser step needs far more room — a login page squeezed into
+          32rem is unusable. */}
       <div
-        className={`w-full max-h-[90vh] flex flex-col rounded-2xl bg-panel border border-line overflow-hidden shadow-2xl ${
+        className={`w-full max-h-full min-h-0 flex flex-col rounded-2xl bg-panel border border-line overflow-hidden shadow-2xl ${
           step === 'browser' ? 'max-w-5xl' : 'max-w-lg'
         }`}
       >
@@ -493,6 +519,11 @@ export function PlatformConnectionModal({
                 streamUrl={browserSession.streamUrl}
                 onSignedIn={() => setBrowserSignedIn(true)}
                 onClosed={() => {
+                  // Expected when a save is in flight or has just landed —
+                  // closing the session is the last thing a successful save
+                  // does. Reporting it would contradict the result the user is
+                  // about to be shown.
+                  if (savingRef.current) return;
                   setError('The browser session ended before it was saved. Start the login again.');
                   setBrowserSession(null);
                   setStep('select');

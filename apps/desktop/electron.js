@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, screen, shell, dialog, ipcMain, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -161,11 +161,23 @@ function waitForServer(port, done, fail) {
 }
 
 function createWindow(url) {
+  // The window must never open larger than the display it lands on. A fixed
+  // 1440x900 hangs off the bottom of a 1366x768 laptop panel, and it takes the
+  // dialogs' pinned footers with it — the connect modal then looks like it
+  // simply has no confirm button, because the button is below the screen edge
+  // rather than below a scroll. workAreaSize is the space left after the
+  // taskbar/dock, i.e. what the user can actually reach.
+  //
+  // screen is only usable after 'ready', which holds here: createWindow runs
+  // from app.whenReady().
+  const { workAreaSize } = screen.getPrimaryDisplay();
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 680,
+    width: Math.min(1440, workAreaSize.width),
+    height: Math.min(900, workAreaSize.height),
+    // The minimums have to bow to the same limit, or they re-inflate the
+    // window past the screen edge on a small panel and undo the clamp above.
+    minWidth: Math.min(1024, workAreaSize.width),
+    minHeight: Math.min(680, workAreaSize.height),
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#08080b',

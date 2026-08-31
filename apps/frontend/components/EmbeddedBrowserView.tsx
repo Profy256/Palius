@@ -339,7 +339,13 @@ export function EmbeddedBrowserView({ streamUrl, onSignedIn, onClosed }: Embedde
             width: 'auto',
             height: 'auto',
             maxWidth: '100%',
-            maxHeight: '62vh',
+            // Scales with the window instead of claiming a flat 62vh. On a
+            // short panel that fraction plus the dialog's own chrome — header,
+            // notice, toolbar, footer — adds up to more than the screen, so the
+            // stream pushes everything below it out of reach. clamp keeps the
+            // picture usable on a large display and lets it shrink on a small
+            // one rather than overflowing.
+            maxHeight: 'clamp(200px, 52vh, 640px)',
           }}
         />
 

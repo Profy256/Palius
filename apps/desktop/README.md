@@ -179,11 +179,19 @@ sudo apt install libfuse2          # option 1
 ./Palius-1.0.0.AppImage --appimage-extract && ./squashfs-root/palius   # option 2
 ```
 
-**Install without root** — no `.deb`, no FUSE, no `sudo`:
+**Install without root** — no `.deb`, no FUSE, and nothing outside `$HOME`.
+The two `chown`/`chmod` lines are the only step that needs `sudo`:
 
 ```bash
 npm run dist:linux
 cp -r release/linux-unpacked ~/.local/share/palius
+
+# cp does not preserve the setuid bit, so restore it — without this the app
+# aborts on launch with "The SUID sandbox helper binary ... is not configured
+# correctly". The .deb does this for you in postinst.
+sudo chown root:root ~/.local/share/palius/chrome-sandbox
+sudo chmod 4755 ~/.local/share/palius/chrome-sandbox
+
 mkdir -p ~/.local/bin
 printf '#!/bin/sh\nexec "$HOME/.local/share/palius/palius" "$@"\n' > ~/.local/bin/palius
 chmod +x ~/.local/bin/palius
@@ -318,7 +326,7 @@ plain browser the key goes to `localStorage` instead.
 | **App window is unstyled** — serif text, white buttons | Fixed in 1.0.0. A stale server on a fixed port was being adopted; the app now picks a free port. If you still see it, kill leftover `next-server` processes: `pkill -f next-server` |
 | `dlopen(): error loading libfuse.so.2` | AppImage needs FUSE 2 — `sudo apt install libfuse2`, or use the `.deb`, or `--appimage-extract` |
 | `The Palius frontend server exited (code N) before it was ready` | The bundled server crashed on start. Run the binary from a terminal to see its output |
-| `FATAL: ... sandbox is not running as root` | The SUID helper lost its bit. The `.deb` sets it in `postinst`; for a manual install run with `--no-sandbox`, or `sudo chown root:root <app>/chrome-sandbox && sudo chmod 4755 <app>/chrome-sandbox` |
+| `FATAL: ... sandbox is not running as root` | The SUID helper lost its bit — `cp` drops it. The `.deb` sets it in `postinst`; for a manual install, `sudo chown root:root <app>/chrome-sandbox && sudo chmod 4755 <app>/chrome-sandbox`. Launching with `--no-sandbox` also works but turns off Chromium's sandbox for good, so prefer the `chmod` |
 | Settings shows "Stored locally in this browser" in the desktop app | No OS keyring available. Install `gnome-keyring` or `kwallet` |
 | Build fails: `Please specify project homepage` | `.deb` packaging requires `homepage` in `package.json` |
 | Blank window, server started fine | Check the DevTools console — `Ctrl/Cmd+Shift+I` |
